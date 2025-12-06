@@ -1,0 +1,23 @@
+6. (Optional) Reinstall from requirements.txt later
+
+If you ever need to restore the environment:
+
+pip install -r requirements.txt
+
+
+
+🚀 How to run it
+
+Make sure your .venv is active:
+
+.\.venv\Scripts\Activate
+
+
+Install Supabase (if not done):
+
+pip install supabase
+
+
+Run your file:
+
+python supabase_test.py

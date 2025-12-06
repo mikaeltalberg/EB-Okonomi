@@ -1,0 +1,18 @@
+// ===========================
+// SUPABASE CONFIGURATION TEMPLATE
+// ===========================
+// 
+// Copy this file to config.js and fill in your actual Supabase credentials
+// 
+// Get your credentials from: https://app.supabase.com/project/_/settings/api
+//
+// IMPORTANT: config.js is in .gitignore to keep your credentials private
+
+const SUPABASE_CONFIG = {
+    url: "YOUR_SUPABASE_PROJECT_URL_HERE",  // e.g., "https://xxxxx.supabase.co"
+    anonKey: "YOUR_SUPABASE_ANON_KEY_HERE"  // Your Supabase anon/public key
+};
+
+// Note: The anon key is safe to expose in client-side code.
+// Security is handled via Row Level Security (RLS) policies in Supabase.
+

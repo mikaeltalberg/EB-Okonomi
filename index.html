@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EB Økonomi</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <!-- 🚧 PAYWALL / ABONNEMENTS-BLOKKAJE -->
+    <div id="paywall" class="paywall">
+        <div class="paywall-content">
+            <h2>🔒 Abonnement påkrevd</h2>
+            <p>For å få tilgang må du logge inn med din konto.</p>
+            
+            <div id="auth-status">
+                <p id="auth-message">Logger inn...</p>
+            </div>
+            
+            <div id="login-buttons" style="display: none;">
+                <button onclick="signInWithGoogle()" class="oauth-button">
+                    🔵 Logg inn med Google
+                </button>
+                <button onclick="signInWithGitHub()" class="oauth-button">
+                    🐙 Logg inn med GitHub
+                </button>
+                <button onclick="signInWithEmail()" class="oauth-button">
+                    📧 Logg inn med E-post
+                </button>
+            </div>
+            
+            <div id="user-info" style="display: none;">
+                <p>Logget inn som: <span id="user-email"></span></p>
+                <button onclick="signOut()" class="signout-button">Logg ut</button>
+            </div>
+            
+            <div id="subscription-prompt" style="display: none;">
+                <p>Du må ha et aktivt abonnement for å bruke denne tjenesten.</p>
+                <button onclick="goToSubscription()" class="subscribe-button">Abonner nå</button>
+            </div>
+        </div>
+    </div>
+    <!-- 🚧 PAYWALL SLUTT -->
+
+    <div class="container">
+        <h1>EB Økonomi</h1>
+
+        <label for="start">Oppstartstid:</label>
+        <input type="date" id="start">
+
+        <label for="end">Avviklingstid:</label>
+        <input type="date" id="end">
+
+        <h2>Andeler</h2>
+        <input type="number" id="andeler" placeholder="Antall andeler">
+        <input type="number" id="andelVerdi" placeholder="Verdi per andel">
+
+        <h2>Inntekter</h2>
+        <div id="inntekter-list"></div>
+        <input type="number" id="nyInntekt" placeholder="Legg til inntekt">
+        <input type="text" id="inntektBeskrivelse" placeholder="Beskrivelse av inntekt">
+        <input type="date" id="inntektDato" placeholder="Velg dato">
+        <button onclick="leggTilInntekt()">Legg til</button>
+
+        <h2>Utgifter</h2>
+        <div id="utgifter-list"></div>
+        <div class="utgift-inputs">
+            <input type="number" id="nyUtgift" placeholder="Legg til utgift">
+            <input type="text" id="utgiftBeskrivelse" placeholder="Beskrivelse av utgift">
+            <input type="date" id="utgiftDato" placeholder="Velg dato">
+        </div>
+        <div class="center-button">
+            <button onclick="leggTilUtgift()">Legg til</button>
+        </div>
+
+        <h2>Kundefordringar</h2>
+        <div id="skyldnere-list"></div>
+        <input type="text" id="skyldnerNavn" placeholder="Navn på skyldner">
+        <input type="number" id="skyldnerBeløp" placeholder="Beløp skylder">
+        <button onclick="leggTilSkyldner()">Legg til kundefordring</button>
+
+        <div class="button-group">
+            <button onclick="beregnBudsjett()">Beregn Budsjett</button>
+            <button onclick="eksporterPDF()">Eksporter til PDF</button>
+            <button onclick="eksporterExcel()">Eksporter til Excel</button>
+            <button onclick="nullstillData()">Nullstill Alt</button>
+        </div>
+
+        <h2>Resultat</h2>
+        <p id="resultat"></p>
+
+        <h2>Økonomisk utvikling</h2>
+        <canvas id="budsjettChart"></canvas>
+
+        <h2>Egenkapital over tid</h2>
+        <canvas id="egenkapitalChart"></canvas>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
