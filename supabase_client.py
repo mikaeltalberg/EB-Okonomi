@@ -10,13 +10,27 @@
 from supabase import create_client, Client
 
 # ---------------------------------------------------
-# 1. PASTE YOUR SUPABASE INFO HERE
+# 1. SUPABASE CONFIGURATION
 # ---------------------------------------------------
-SUPABASE_URL = "https://bgqsivfeglvhzkftelez.supabase.co"
-SUPABASE_ANON_KEY = "sb_secret_tkgSK3FpKVekrvTXZS_dmw_041JnYBV"   # Use anon key ONLY
+# IMPORTANT: This file is for Python backend use only.
+# For client-side (browser), use config.js instead.
+# 
+# Use environment variables for security:
+# - SUPABASE_URL
+# - SUPABASE_SERVICE_KEY (for backend) or SUPABASE_ANON_KEY (for client-side)
+#
+# Example:
+# import os
+# from dotenv import load_dotenv
+# load_dotenv()
+# 
+# SUPABASE_URL = os.getenv("SUPABASE_URL")
+# SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")  # Use service_role for backend
+# 
+# supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Create client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+# NOTE: This file is not used for the GitHub Pages deployment.
+# All client-side code uses config.js with the anon key.
 
 
 # ---------------------------------------------------

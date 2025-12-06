@@ -34,3 +34,7 @@ Thumbs.db
 # Config - keep your actual credentials private
 config.js
 
+# Python files with potential secrets (backend only, not used for GitHub Pages)
+supabase_client.py
+server.py
+

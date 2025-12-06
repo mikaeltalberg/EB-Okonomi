@@ -227,14 +227,50 @@ function goToSubscription() {
 // ===========================
 
 document.addEventListener("DOMContentLoaded", async () => {
-    // Check for OAuth callback (handle redirect after OAuth)
+    if (!supabaseClient) {
+        showAuthError("Supabase ikke konfigurert. Sjekk config.js");
+        return;
+    }
+
+    // Check for OAuth/magic link callback (handle redirect after authentication)
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    if (hashParams.get('access_token')) {
-        // OAuth redirect - Supabase will handle this automatically
-        // Just check auth status after a short delay
-        setTimeout(() => {
-            checkAuthAndSubscription();
-        }, 500);
+    const hasAccessToken = hashParams.get('access_token');
+    const isMagicLink = hashParams.get('type') === 'magiclink';
+    
+    if (hasAccessToken || isMagicLink) {
+        // Authentication redirect - Supabase needs to process the hash
+        console.log("Processing authentication callback...");
+        
+        try {
+            // Wait for Supabase to process the hash and set the session
+            // The getSession() call will automatically extract tokens from hash
+            const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+            
+            if (sessionError) {
+                console.error("Session error after redirect:", sessionError);
+                showAuthError("Feil ved autentisering. Prøv igjen.");
+                // Clear the hash to prevent retry loops
+                window.location.hash = '';
+                return;
+            }
+            
+            if (session) {
+                console.log("✅ Session established:", session.user.email);
+                // Clear the hash from URL for cleaner URL
+                window.location.hash = '';
+                // Check auth and subscription status
+                await checkAuthAndSubscription();
+            } else {
+                console.warn("No session after redirect");
+                // Clear hash and show login
+                window.location.hash = '';
+                showLoginPrompt();
+            }
+        } catch (error) {
+            console.error("Error processing auth callback:", error);
+            showAuthError("Feil ved autentisering. Prøv igjen.");
+            window.location.hash = '';
+        }
     } else {
         // Normal page load - check auth immediately
         await checkAuthAndSubscription();
