@@ -19,3 +19,32 @@ const SUPABASE_CONFIG = {
 // Note: The anon key is safe to expose in client-side code.
 // Security is handled via Row Level Security (RLS) policies in Supabase.
 
+// ===========================
+// STRIPE PRODUCTS CONFIGURATION
+// ===========================
+// 
+// Add your Stripe Payment Links here
+// Get Payment Links from: Stripe Dashboard → Products → Create payment link
+// 
+// IMPORTANT: Update these with your actual Stripe Payment Link URLs
+// ===========================
+
+const STRIPE_PRODUCTS = [
+    {
+        id: 'prod_TYoGOyD47FMCd7',  // Your Stripe Product ID (from example data)
+        name: 'Årlig abonnement',
+        price: '10 000 kr',
+        description: 'Full tilgang til appen i ett år',
+        paymentLink: 'https://buy.stripe.com/...',  // TODO: Replace with your actual Stripe Payment Link URL
+        interval: 'year'
+    },
+    {
+        id: 'prod_XXXXX',  // TODO: Replace with your second product ID
+        name: 'Månedlig abonnement',
+        price: '1 000 kr',
+        description: 'Full tilgang til appen per måned',
+        paymentLink: 'https://buy.stripe.com/...',  // TODO: Replace with your second Payment Link URL
+        interval: 'month'
+    }
+];
+

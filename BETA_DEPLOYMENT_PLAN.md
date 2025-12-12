@@ -2,7 +2,7 @@
 
 ## 🎯 Your Approach: Smart & Sensible
 
-**Your plan:** Deploy current state to main as beta → Test API/SDK connections → Add paywall later
+**Your plan:** Deploy current state to master as beta → Test API/SDK connections → Add paywall later
 
 **My assessment:** ✅ **Excellent approach!** This is a solid incremental development strategy.
 
@@ -85,7 +85,7 @@
 **Pros:**
 - More controlled releases
 - Can test on beta branch first
-- Merge to main when ready
+- Merge to master when ready
 
 **Cons:**
 - More complex workflow
@@ -109,7 +109,7 @@
 - Test locally first (you're doing this ✅)
 - Commit frequently with clear messages
 - Keep `dev` branch for experimental work
-- Use main for "ready to deploy" code
+- Use master for "ready to deploy" code
 
 ---
 
@@ -117,12 +117,12 @@
 
 ### Development Flow:
 ```
-dev branch → Test locally → Commit to dev → Test more → Merge to main → Deploy
+dev branch → Test locally → Commit to dev → Test more → Merge to master → Deploy
 ```
 
 ### Branch Strategy:
 - **`dev`** - Your working branch, experiment here
-- **`main`** - Beta/production, only merge when ready
+- **`master`** - Beta/production, only merge when ready
 
 ### Git Workflow:
 ```powershell
@@ -134,9 +134,9 @@ git commit -m "Feature: Description"
 git push origin dev
 
 # When ready for beta
-git checkout main
+git checkout master
 git merge dev
-git push origin main
+git push origin master
 # GitHub Pages auto-deploys
 ```
 
@@ -243,7 +243,7 @@ If you want users to test the app during beta, you could:
 ### Git:
 - [ ] All changes committed
 - [ ] `.gitignore` verified
-- [ ] Ready to push to main
+- [ ] Ready to push to master
 
 ### Post-Deploy:
 - [ ] Test on GitHub Pages
@@ -255,7 +255,7 @@ If you want users to test the app during beta, you could:
 
 ## 🎉 My Final Recommendation
 
-**YES, deploy to main as beta!** 
+**YES, deploy to master as beta!** 
 
 **Why:**
 1. ✅ Your approach is sound - foundation first
@@ -267,7 +267,7 @@ If you want users to test the app during beta, you could:
 **Just make sure:**
 1. ✅ Add GitHub Pages URL to Supabase redirect URLs
 2. ✅ Test locally one more time
-3. ✅ Push to main when ready
+3. ✅ Push to master when ready
 4. ✅ Test on GitHub Pages after deploy
 
 **Then:**

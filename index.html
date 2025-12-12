@@ -34,6 +34,12 @@
                 <button onclick="signInWithEmail()" class="oauth-button">
                     📧 Logg inn med E-post
                 </button>
+                <p style="margin-top: 1rem; color: #666;">
+                    Har du ikke konto? 
+                    <a href="#" onclick="showProductSelection(); return false;" style="color: #4CAF50; text-decoration: underline; font-weight: 600;">
+                        Registrer deg her
+                    </a>
+                </p>
             </div>
             
             <div id="user-info" style="display: none;">
@@ -43,11 +49,50 @@
             
             <div id="subscription-prompt" style="display: none;">
                 <p>Du må ha et aktivt abonnement for å bruke denne tjenesten.</p>
-                <button onclick="goToSubscription()" class="subscribe-button">Abonner nå</button>
+                <button onclick="showProductSelection()" class="subscribe-button">Velg abonnement</button>
             </div>
         </div>
     </div>
     <!-- 🚧 PAYWALL SLUTT -->
+
+    <!-- Product Selection Modal -->
+    <div id="product-selection" class="product-selection hidden">
+        <div class="product-selection-content">
+            <h2>Velg ditt abonnement</h2>
+            <div class="products-grid" id="products-container">
+                <!-- Products will be loaded here -->
+            </div>
+            <button onclick="closeProductSelection()" class="close-button">Lukk</button>
+        </div>
+    </div>
+
+    <!-- User Settings Button (shown when logged in with subscription) -->
+    <div id="user-settings" class="user-settings hidden">
+        <button onclick="showSettingsModal()" class="settings-button">⚙️ Innstillinger</button>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Kontoinnstillinger</h2>
+            
+            <!-- Subscription Info -->
+            <div class="settings-section">
+                <h3>Abonnement</h3>
+                <p id="subscription-info">Laster...</p>
+            </div>
+            
+            <!-- License Users (optional) -->
+            <div class="settings-section">
+                <h3>Gi tilgang til e-postadresser (maks 5)</h3>
+                <div id="license-users-list"></div>
+                <input type="email" id="new-license-email" placeholder="E-postadresse" style="width: 70%; margin-right: 10px;">
+                <button onclick="addLicenseUser()">Legg til</button>
+            </div>
+            
+            <button onclick="closeSettingsModal()" class="close-button">Lukk</button>
+        </div>
+    </div>
 
     <div class="container">
         <h1>EB Økonomi</h1>

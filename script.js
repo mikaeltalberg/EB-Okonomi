@@ -48,27 +48,79 @@ async function checkAuthAndSubscription() {
         console.log("✅ User authenticated:", user.email);
 
         // Check subscription status from user profile
-        const { data: profile, error: profileError } = await supabaseClient
+        let profile = null;
+        let profileError = null;
+        
+        // First try to get profile by user ID
+        const profileResult = await supabaseClient
             .from('user_profiles')
-            .select('subscription_status, subscription_end_date')
+            .select('plan_status, subscription_end, email')
             .eq('id', user.id)
             .single();
 
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        profile = profileResult.data;
+        profileError = profileResult.error;
+
+        // If no profile by ID, try by email (for users who paid before signing up)
+        if (profileError && profileError.code === 'PGRST116') {
+            const profileByEmailResult = await supabaseClient
+                .from('user_profiles')
+                .select('plan_status, subscription_end, email')
+                .eq('email', user.email)
+                .single();
+            
+            if (profileByEmailResult.data) {
+                profile = profileByEmailResult.data;
+                // Link the profile to the user ID
+                await supabaseClient
+                    .from('user_profiles')
+                    .update({ id: user.id })
+                    .eq('email', user.email);
+            }
+        } else if (profileError && profileError.code !== 'PGRST116') {
             console.error("Profile error:", profileError);
         }
 
-        const isSubscribed = profile && 
-            profile.subscription_status === 'active' && 
-            (!profile.subscription_end_date || new Date(profile.subscription_end_date) > new Date());
+        // Check if user has active subscription (direct or via license)
+        let hasAccess = false;
+        
+        if (profile && profile.plan_status === 'active' && 
+            (!profile.subscription_end || new Date(profile.subscription_end) > new Date())) {
+            hasAccess = true;
+        } else {
+            // Check if user is granted access via license
+            const { data: license } = await supabaseClient
+                .from('license_users')
+                .select('license_owner_id')
+                .eq('email', user.email)
+                .eq('is_active', true)
+                .single();
+            
+            if (license) {
+                // Check if license owner has active subscription
+                const { data: ownerProfile } = await supabaseClient
+                    .from('user_profiles')
+                    .select('plan_status, subscription_end')
+                    .eq('id', license.license_owner_id)
+                    .single();
+                
+                if (ownerProfile && ownerProfile.plan_status === 'active' &&
+                    (!ownerProfile.subscription_end || new Date(ownerProfile.subscription_end) > new Date())) {
+                    hasAccess = true;
+                }
+            }
+        }
 
-        if (isSubscribed) {
+        if (hasAccess) {
             // User has active subscription - hide paywall
             hidePaywall();
             showUserInfo(user.email);
+            // Show settings button
+            document.getElementById('user-settings').classList.remove('hidden');
         } else {
             // User authenticated but no subscription
             showSubscriptionPrompt(user.email);
+            document.getElementById('user-settings').classList.add('hidden');
         }
 
     } catch (error) {
@@ -101,6 +153,7 @@ function showUserInfo(email) {
     document.getElementById("user-info").style.display = "block";
     document.getElementById("login-buttons").style.display = "none";
     document.getElementById("auth-status").style.display = "none";
+    document.getElementById("subscription-prompt").style.display = "none";
 }
 
 // Show subscription prompt
@@ -216,10 +269,219 @@ async function signOut() {
     }
 }
 
-// Go to subscription page (placeholder - will be implemented with Stripe)
-function goToSubscription() {
-    alert("Abonnementsside kommer snart! Dette vil integreres med Stripe/Vipps.");
-    // TODO: Redirect to Stripe Checkout or subscription page
+// ===========================
+// PRODUCT SELECTION
+// ===========================
+
+// Show product selection page
+function showProductSelection() {
+    if (typeof STRIPE_PRODUCTS === 'undefined' || !STRIPE_PRODUCTS || STRIPE_PRODUCTS.length === 0) {
+        alert("Ingen produkter konfigurert. Vennligst kontakt support.");
+        console.error("STRIPE_PRODUCTS not defined in config.js");
+        return;
+    }
+
+    const container = document.getElementById('products-container');
+    container.innerHTML = '';
+    
+    STRIPE_PRODUCTS.forEach(product => {
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.innerHTML = `
+            <div class="product-name">${product.name}</div>
+            <div class="product-price">${product.price}</div>
+            <div class="product-description">${product.description}</div>
+            <button class="choose-button" onclick="selectProduct('${product.paymentLink}')">
+                Velg
+            </button>
+        `;
+        container.appendChild(card);
+    });
+    
+    document.getElementById('product-selection').classList.remove('hidden');
+}
+
+// Close product selection
+function closeProductSelection() {
+    document.getElementById('product-selection').classList.add('hidden');
+}
+
+// Select product and redirect to Stripe Payment Link
+function selectProduct(paymentLink) {
+    if (!paymentLink || paymentLink.includes('...')) {
+        alert("Betalinglenke ikke konfigurert. Vennligst kontakt support.");
+        console.error("Payment link not configured:", paymentLink);
+        return;
+    }
+    
+    // Redirect to Stripe Payment Link
+    window.location.href = paymentLink;
+}
+
+// Poll for subscription status after payment
+async function pollForSubscription(maxAttempts = 12) {
+    if (!supabaseClient) return;
+    
+    for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(resolve => setTimeout(resolve, 30000)); // Wait 30 seconds between attempts
+        
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) {
+            console.log("No session, stopping poll");
+            break;
+        }
+        
+        // Check subscription status
+        await checkAuthAndSubscription();
+        
+        // Check if subscription is now active
+        const { data: profile } = await supabaseClient
+            .from('user_profiles')
+            .select('plan_status, subscription_end')
+            .eq('id', session.user.id)
+            .single();
+        
+        if (profile && profile.plan_status === 'active') {
+            console.log("✅ Subscription active!");
+            showAuthError("Tilgang aktivert! Velkommen!");
+            setTimeout(() => {
+                showAuthError("");
+            }, 3000);
+            return;
+        }
+        
+        console.log(`Polling attempt ${i + 1}/${maxAttempts}...`);
+    }
+    
+    // If we get here, polling didn't find active subscription
+    showAuthError("Betalingen er registrert, men det kan ta noen minutter før tilgangen aktiveres. Prøv å oppdatere siden om litt.");
+}
+
+// ===========================
+// USER SETTINGS
+// ===========================
+
+async function showSettingsModal() {
+    if (!supabaseClient) return;
+    
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return;
+    
+    // Load subscription info
+    const { data: profile } = await supabaseClient
+        .from('user_profiles')
+        .select('*')
+        .eq('id', session.user.id)
+        .single();
+    
+    if (profile) {
+        const endDate = profile.subscription_end 
+            ? new Date(profile.subscription_end).toLocaleDateString('no-NO')
+            : 'N/A';
+        document.getElementById('subscription-info').innerHTML = `
+            <strong>Status:</strong> ${profile.plan_status}<br>
+            <strong>Slutter:</strong> ${endDate}
+        `;
+    } else {
+        document.getElementById('subscription-info').innerHTML = 'Ingen abonnement funnet.';
+    }
+    
+    // Load license users
+    await loadLicenseUsers();
+    
+    document.getElementById('settings-modal').classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.add('hidden');
+}
+
+async function loadLicenseUsers() {
+    if (!supabaseClient) return;
+    
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return;
+    
+    const { data: users } = await supabaseClient
+        .from('license_users')
+        .select('*')
+        .eq('license_owner_id', session.user.id)
+        .eq('is_active', true);
+    
+    const container = document.getElementById('license-users-list');
+    container.innerHTML = '';
+    
+    if (users && users.length > 0) {
+        users.forEach(user => {
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <span>${user.email}</span>
+                <button onclick="removeLicenseUser('${user.id}')">Fjern</button>
+            `;
+            container.appendChild(div);
+        });
+    }
+    
+    // Show count
+    const count = users ? users.length : 0;
+    const countP = document.createElement('p');
+    countP.style.marginTop = '0.5rem';
+    countP.textContent = `Antall: ${count}/5`;
+    container.appendChild(countP);
+}
+
+async function addLicenseUser() {
+    if (!supabaseClient) return;
+    
+    const email = document.getElementById('new-license-email').value.trim();
+    if (!email) {
+        alert('Vennligst oppgi en e-postadresse');
+        return;
+    }
+    
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (!session) return;
+    
+    // Check count
+    const { data: existing } = await supabaseClient
+        .from('license_users')
+        .select('id')
+        .eq('license_owner_id', session.user.id)
+        .eq('is_active', true);
+    
+    if (existing && existing.length >= 5) {
+        alert('Maksimalt 5 e-postadresser per lisens');
+        return;
+    }
+    
+    const { error } = await supabaseClient
+        .from('license_users')
+        .insert({
+            license_owner_id: session.user.id,
+            email: email
+        });
+    
+    if (error) {
+        alert('Feil: ' + error.message);
+    } else {
+        document.getElementById('new-license-email').value = '';
+        await loadLicenseUsers();
+    }
+}
+
+async function removeLicenseUser(userId) {
+    if (!supabaseClient) return;
+    
+    const { error } = await supabaseClient
+        .from('license_users')
+        .update({ is_active: false })
+        .eq('id', userId);
+    
+    if (!error) {
+        await loadLicenseUsers();
+    } else {
+        alert('Feil ved fjerning: ' + error.message);
+    }
 }
 
 // ===========================
@@ -229,6 +491,37 @@ function goToSubscription() {
 document.addEventListener("DOMContentLoaded", async () => {
     if (!supabaseClient) {
         showAuthError("Supabase ikke konfigurert. Sjekk config.js");
+        return;
+    }
+
+    // Check for return from Stripe Payment Link
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentSuccess = urlParams.get('payment_success');
+    
+    if (paymentSuccess === 'true') {
+        // Payment completed - wait for sync, then check status
+        console.log("Payment successful, waiting for sync...");
+        
+        // Show message to user
+        showAuthError("Betaling mottatt! Vent mens vi oppdaterer din tilgang...");
+        
+        // Poll for subscription status (sync runs every 5 minutes, so poll for up to 6 minutes)
+        await pollForSubscription(12); // 12 attempts × 30 seconds = 6 minutes
+        
+        // Remove query param
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+    }
+
+    // Check for old Stripe checkout session_id (backward compatibility)
+    const sessionId = urlParams.get('session_id');
+    if (sessionId) {
+        // Payment successful - refresh subscription status
+        console.log("Payment successful, refreshing subscription status...");
+        // Remove session_id from URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        // Check auth and subscription (will show updated status)
+        await checkAuthAndSubscription();
         return;
     }
 
