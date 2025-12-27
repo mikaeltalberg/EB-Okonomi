@@ -341,6 +341,169 @@ async function signInWithEmail() {
     }
 }
 
+// ===========================
+// SIGNUP FUNCTIONS
+// ===========================
+
+// Show signup modal
+function showSignupModal() {
+    const modal = document.getElementById("signup-modal");
+    if (modal) {
+        modal.classList.remove("hidden");
+        // Clear form
+        document.getElementById("signup-form").reset();
+        document.getElementById("signup-error").style.display = "none";
+    }
+}
+
+// Hide signup modal
+function hideSignupModal() {
+    const modal = document.getElementById("signup-modal");
+    if (modal) {
+        modal.classList.add("hidden");
+    }
+}
+
+// Handle signup form submission
+async function handleSignup(event) {
+    event.preventDefault();
+    
+    if (!supabaseClient) {
+        showSignupError("Supabase ikke konfigurert");
+        return;
+    }
+
+    const email = document.getElementById("signup-email").value.trim();
+    const password = document.getElementById("signup-password").value;
+    const passwordConfirm = document.getElementById("signup-password-confirm").value;
+
+    // Validation
+    if (!email || !password || !passwordConfirm) {
+        showSignupError("Vennligst fyll ut alle felt");
+        return;
+    }
+
+    if (password.length < 6) {
+        showSignupError("Passordet må være minst 6 tegn langt");
+        return;
+    }
+
+    if (password !== passwordConfirm) {
+        showSignupError("Passordene stemmer ikke overens");
+        return;
+    }
+
+    // Clear previous errors
+    showSignupError("");
+
+    try {
+        // Sign up user with Supabase
+        const { data: authData, error: authError } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+            options: {
+                emailRedirectTo: window.location.origin + window.location.pathname
+            }
+        });
+
+        if (authError) throw authError;
+
+        // If email confirmation is required, user will need to confirm email
+        if (authData.user && !authData.session) {
+            alert("Konto opprettet! Sjekk din e-post for å bekrefte kontoen din.");
+            hideSignupModal();
+            showLoginPrompt();
+            return;
+        }
+
+        // If session is created immediately (email confirmation disabled)
+        if (authData.session && authData.user) {
+            console.log("✅ User signed up:", authData.user.email);
+            
+            // Create user profile in user_profiles table
+            await createUserProfile(authData.user.id, email);
+            
+            // Check auth and subscription status
+            await checkAuthAndSubscription();
+            
+            // Hide signup modal
+            hideSignupModal();
+        }
+
+    } catch (error) {
+        console.error("Signup error:", error);
+        showSignupError(error.message || "Feil ved opprettelse av konto. Prøv igjen.");
+    }
+}
+
+// Create user profile in user_profiles table
+async function createUserProfile(userId, email) {
+    if (!supabaseClient) return;
+
+    try {
+        const { data, error } = await supabaseClient
+            .from('user_profiles')
+            .insert({
+                id: userId,
+                email: email,
+                plan_status: 'inactive',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+        if (error) {
+            // If profile already exists, that's okay
+            if (error.code !== '23505') { // 23505 = unique violation
+                console.error("Error creating user profile:", error);
+            }
+        } else {
+            console.log("✅ User profile created:", data);
+        }
+    } catch (error) {
+        console.error("Error in createUserProfile:", error);
+    }
+}
+
+// Ensure user profile exists (useful for email confirmation flow)
+async function ensureUserProfile(userId, email) {
+    if (!supabaseClient || !userId) return;
+
+    try {
+        // Check if profile exists
+        const { data: existingProfile, error: checkError } = await supabaseClient
+            .from('user_profiles')
+            .select('id')
+            .eq('id', userId)
+            .single();
+
+        // If profile doesn't exist, create it
+        if (checkError && checkError.code === 'PGRST116') {
+            console.log("Profile doesn't exist, creating...");
+            await createUserProfile(userId, email);
+        } else if (existingProfile) {
+            console.log("✅ User profile already exists");
+        }
+    } catch (error) {
+        console.error("Error ensuring user profile:", error);
+    }
+}
+
+// Show signup error message
+function showSignupError(message) {
+    const errorDiv = document.getElementById("signup-error");
+    if (errorDiv) {
+        if (message) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = "block";
+        } else {
+            errorDiv.textContent = "";
+            errorDiv.style.display = "none";
+        }
+    }
+}
+
 // Sign out
 async function signOut() {
     if (!supabaseClient) {
@@ -665,9 +828,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     // Listen for auth state changes
     if (supabaseClient) {
-        supabaseClient.auth.onAuthStateChange((event, session) => {
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
             console.log("Auth state changed:", event, session?.user?.email);
+            
             if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                // If user just signed in, ensure profile exists
+                if (session?.user) {
+                    await ensureUserProfile(session.user.id, session.user.email);
+                }
                 checkAuthAndSubscription();
             } else if (event === 'SIGNED_OUT') {
                 userHasAccess = false;

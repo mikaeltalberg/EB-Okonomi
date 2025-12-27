@@ -36,7 +36,7 @@
                 </button>
                 <p style="margin-top: 1rem; color: #666;">
                     Har du ikke konto? 
-                    <a href="#" onclick="showProductSelection(); return false;" style="color: #4CAF50; text-decoration: underline; font-weight: 600;">
+                    <a href="#" onclick="showSignupModal(); return false;" style="color: #4CAF50; text-decoration: underline; font-weight: 600;">
                         Registrer deg her
                     </a>
                 </p>
@@ -54,6 +54,44 @@
         </div>
     </div>
     <!-- 🚧 PAYWALL SLUTT -->
+
+    <!-- Signup Modal -->
+    <div id="signup-modal" class="signup-modal hidden">
+        <div class="signup-modal-content">
+            <button class="close-button" onclick="hideSignupModal()">&times;</button>
+            <h2>Opprett konto</h2>
+            <p style="color: #666; margin-bottom: 1.5rem;">Fyll ut informasjonen under for å opprette din konto</p>
+            
+            <form id="signup-form" onsubmit="handleSignup(event)">
+                <div class="form-group">
+                    <label for="signup-email">E-postadresse *</label>
+                    <input type="email" id="signup-email" required placeholder="din@epost.no">
+                </div>
+                
+                <div class="form-group">
+                    <label for="signup-password">Passord *</label>
+                    <input type="password" id="signup-password" required placeholder="Minimum 6 tegn" minlength="6">
+                    <small style="color: #666;">Passordet må være minst 6 tegn langt</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="signup-password-confirm">Bekreft passord *</label>
+                    <input type="password" id="signup-password-confirm" required placeholder="Gjenta passordet">
+                </div>
+                
+                <div id="signup-error" style="color: #dc3545; margin: 1rem 0; display: none;"></div>
+                
+                <button type="submit" class="signup-submit-button">Opprett konto</button>
+                
+                <p style="margin-top: 1rem; color: #666; text-align: center;">
+                    Har du allerede konto? 
+                    <a href="#" onclick="hideSignupModal(); showLoginPrompt(); return false;" style="color: #4CAF50; text-decoration: underline;">
+                        Logg inn her
+                    </a>
+                </p>
+            </form>
+        </div>
+    </div>
 
     <!-- Product Selection Modal -->
     <div id="product-selection" class="product-selection hidden">
