@@ -35,3 +35,6 @@ Thumbs.db
 supabase_client.py
 server.py
 
+# Configuration files with credentials
+config.js
+
