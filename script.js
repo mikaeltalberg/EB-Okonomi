@@ -113,14 +113,18 @@ async function checkAuthAndSubscription() {
 
         if (hasAccess) {
             // User has active subscription - hide paywall
+            userHasAccess = true; // Set global access flag
             hidePaywall();
             showUserInfo(user.email);
             // Show settings button
-            document.getElementById('user-settings').classList.remove('hidden');
+            const settingsBtn = document.getElementById('user-settings');
+            if (settingsBtn) settingsBtn.classList.remove('hidden');
         } else {
             // User authenticated but no subscription
+            userHasAccess = false; // Clear access flag
             showSubscriptionPrompt(user.email);
-            document.getElementById('user-settings').classList.add('hidden');
+            const settingsBtn = document.getElementById('user-settings');
+            if (settingsBtn) settingsBtn.classList.add('hidden');
         }
 
     } catch (error) {
@@ -131,11 +135,18 @@ async function checkAuthAndSubscription() {
 
 // Show login prompt
 function showLoginPrompt() {
-    document.getElementById("auth-status").style.display = "none";
-    document.getElementById("login-buttons").style.display = "block";
-    document.getElementById("user-info").style.display = "none";
-    document.getElementById("subscription-prompt").style.display = "none";
-    document.getElementById("paywall").classList.remove("hidden");
+    userHasAccess = false; // Clear access flag
+    const authStatus = document.getElementById("auth-status");
+    const loginButtons = document.getElementById("login-buttons");
+    const userInfo = document.getElementById("user-info");
+    const subscriptionPrompt = document.getElementById("subscription-prompt");
+    const paywall = document.getElementById("paywall");
+    
+    if (authStatus) authStatus.style.display = "none";
+    if (loginButtons) loginButtons.style.display = "block";
+    if (userInfo) userInfo.style.display = "none";
+    if (subscriptionPrompt) subscriptionPrompt.style.display = "none";
+    if (paywall) paywall.classList.remove("hidden");
 }
 
 // Show auth error
@@ -168,7 +179,90 @@ function showSubscriptionPrompt(email) {
 
 // Hide paywall and show app
 function hidePaywall() {
-    document.getElementById("paywall").classList.add("hidden");
+    const paywall = document.getElementById("paywall");
+    if (paywall) {
+        paywall.classList.add("hidden");
+    }
+}
+
+// Global access state - tracks if user has valid access
+let userHasAccess = false;
+
+// Re-check access and enforce paywall
+async function enforceAccess() {
+    const paywall = document.getElementById("paywall");
+    
+    // Always verify access with server
+    await checkAuthAndSubscription();
+    
+    // If paywall was removed, restore it if user doesn't have access
+    if (!userHasAccess && paywall && paywall.classList.contains("hidden")) {
+        paywall.classList.remove("hidden");
+        showLoginPrompt();
+    }
+}
+
+// MutationObserver to detect if paywall is removed from DOM
+function setupPaywallProtection() {
+    const paywall = document.getElementById("paywall");
+    if (!paywall) return;
+    
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            // Check if paywall was removed
+            if (mutation.type === 'childList') {
+                mutation.removedNodes.forEach((node) => {
+                    if (node === paywall || (node.nodeType === 1 && node.id === 'paywall')) {
+                        console.warn("⚠️ Paywall removed - restoring security check");
+                        if (!userHasAccess) {
+                            // Recreate paywall if removed
+                            setTimeout(() => {
+                                enforceAccess();
+                            }, 100);
+                        }
+                    }
+                });
+            }
+            
+            // Check if paywall class was changed to hide it without permission
+            if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                const target = mutation.target;
+                if (target.id === 'paywall' && target.classList.contains('hidden') && !userHasAccess) {
+                    console.warn("⚠️ Paywall hidden without access - restoring");
+                    setTimeout(() => {
+                        enforceAccess();
+                    }, 100);
+                }
+            }
+        });
+    });
+    
+    // Observe the paywall element and its parent
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'style']
+    });
+    
+    // Also observe the paywall directly
+    observer.observe(paywall, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+        childList: true
+    });
+}
+
+// Periodic access verification (every 30 seconds)
+function startPeriodicAccessCheck() {
+    setInterval(async () => {
+        if (!userHasAccess) {
+            await enforceAccess();
+        } else {
+            // Even if access is granted, verify periodically
+            await checkAuthAndSubscription();
+        }
+    }, 30000); // Check every 30 seconds
 }
 
 // ===========================
@@ -576,10 +670,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 checkAuthAndSubscription();
             } else if (event === 'SIGNED_OUT') {
+                userHasAccess = false;
                 showLoginPrompt();
             }
         });
     }
+    
+    // Setup security measures
+    setupPaywallProtection();
+    startPeriodicAccessCheck();
 });
 
 // ---------------------------------------------------------------------
@@ -718,6 +817,13 @@ document.getElementById("end").addEventListener("change", function() {
 // Legg til inntekt
 // ========================================================================
 async function leggTilInntekt() {
+    // Security check
+    try {
+        await requireAccess();
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
     let inntekt = parseFloat(document.getElementById("nyInntekt").value);
     let inntektDato = document.getElementById("inntektDato").value;
     let inntektBeskrivelse = document.getElementById("inntektBeskrivelse").value.trim();
@@ -751,7 +857,31 @@ async function leggTilInntekt() {
 // Legg til utgift
 // (unchanged — still local storage)
 // ========================================================================
-function leggTilUtgift() {
+// Check if user has access before allowing function execution
+async function requireAccess() {
+    if (!userHasAccess) {
+        await enforceAccess();
+        throw new Error("Tilgang nødvendig. Vennligst logg inn og abonner.");
+    }
+    // Verify session is still valid
+    if (supabaseClient) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) {
+            userHasAccess = false;
+            showLoginPrompt();
+            throw new Error("Sesjon utløpt. Vennligst logg inn på nytt.");
+        }
+    }
+}
+
+async function leggTilUtgift() {
+    // Security check
+    try {
+        await requireAccess();
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
     let utgift = parseFloat(document.getElementById("nyUtgift").value);
     let utgiftDato = document.getElementById("utgiftDato").value;
     let utgiftBeskrivelse = document.getElementById("utgiftBeskrivelse").value.trim();
@@ -913,7 +1043,14 @@ function lagreData() {
 // ========================================================================
 // Beregn budsjett, andeler, egenkapital
 // ========================================================================
-function beregnBudsjett() {
+async function beregnBudsjett() {
+    // Security check
+    try {
+        await requireAccess();
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
     const totalInntekter = inntekter.reduce((sum,val)=>sum+val,0);
     const totalUtgifter = utgifter.reduce((sum,val)=>sum+val,0);
 
@@ -975,7 +1112,14 @@ function oppdaterEgenkapitalGraf() {
 // ========================================================================
 // Eksporter PDF
 // ========================================================================
-function eksporterPDF() {
+async function eksporterPDF() {
+    // Security check
+    try {
+        await requireAccess();
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
     const { jsPDF } = window.jspdf;
     let doc = new jsPDF();
     doc.setFontSize(18);
@@ -991,7 +1135,14 @@ function eksporterPDF() {
 // ========================================================================
 // Eksporter Excel
 // ========================================================================
-function eksporterExcel() {
+async function eksporterExcel() {
+    // Security check
+    try {
+        await requireAccess();
+    } catch (error) {
+        alert(error.message);
+        return;
+    }
     let ws = XLSX.utils.json_to_sheet([{
         "Inntekt": inntekter.join(", "),
         "Utgifter": utgifter.join(", "),
