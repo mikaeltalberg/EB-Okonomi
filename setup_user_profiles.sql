@@ -76,5 +76,3 @@ CREATE INDEX IF NOT EXISTS idx_user_profiles_plan_status ON user_profiles(plan_s
 -- Done! 
 -- Now refresh your app and the paywall should disappear!
 -- ============================================
-
-|
