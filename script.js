@@ -894,14 +894,49 @@ document.addEventListener("DOMContentLoaded", async () => {
     const paymentSuccess = urlParams.get('payment_success');
     
     if (paymentSuccess === 'true') {
-        // Payment completed - wait for sync, then check status
-        console.log("Payment successful, waiting for sync...");
+        // Payment completed - trigger immediate sync
+        console.log("Payment successful, syncing subscription...");
         
         // Show message to user
         showAuthError("Betaling mottatt! Vent mens vi oppdaterer din tilgang...");
         
-        // Poll for subscription status (sync runs every 5 minutes, so poll for up to 6 minutes)
-        await pollForSubscription(12); // 12 attempts × 30 seconds = 6 minutes
+        // Get current user session
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        
+        if (session?.user) {
+            // Trigger immediate sync via Edge Function
+            try {
+                const { data: syncData, error: syncError } = await supabaseClient.functions.invoke(
+                    'sync-user-subscription',
+                    {
+                        body: { email: session.user.email }
+                    }
+                );
+                
+                if (syncError) {
+                    console.error("Sync error:", syncError);
+                    // Fall back to polling
+                    await pollForSubscription(12);
+                } else if (syncData?.synced) {
+                    console.log("✅ Subscription synced successfully!");
+                    // Wait a moment for database to update
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    // Check subscription status
+                    await checkAuthAndSubscription();
+                } else {
+                    console.log("Sync returned but not synced, polling...");
+                    await pollForSubscription(12);
+                }
+            } catch (error) {
+                console.error("Error calling sync function:", error);
+                // Fall back to polling
+                await pollForSubscription(12);
+            }
+        } else {
+            // User not logged in - show login prompt
+            showLoginPrompt();
+            showAuthError("Vennligst logg inn for å aktivere din tilgang.");
+        }
         
         // Remove query param
         window.history.replaceState({}, document.title, window.location.pathname);
