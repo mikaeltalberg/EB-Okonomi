@@ -35,6 +35,9 @@ Thumbs.db
 supabase_client.py
 server.py
 
-# Configuration files with credentials
-config.js
+# Note: config.js is NOT ignored because:
+# 1. It's needed for GitHub Pages deployment (static site hosting)
+# 2. The Supabase anon key is safe to expose (designed for client-side use)
+# 3. Security comes from Row Level Security (RLS) policies, not hiding the key
+# If you need to keep it private, use environment variables or a build process instead
 
