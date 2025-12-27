@@ -18,3 +18,24 @@ const SUPABASE_CONFIG = {
 
 // Note: The anon key is safe to expose in client-side code.
 // Security is handled via Row Level Security (RLS) policies in Supabase.
+
+// ===========================
+// STRIPE CONFIGURATION
+// ===========================
+// 
+// Stripe API Configuration
+// Products are now fetched dynamically from Stripe API via Supabase Edge Function
+//
+// To set up:
+// 1. Get your Stripe Publishable Key from: https://dashboard.stripe.com/apikeys
+// 2. Add it below (safe to expose in client-side code)
+// 3. Set up the Supabase Edge Function (see Guide/STRIPE_API_SETUP.md)
+//
+const STRIPE_CONFIG = {
+    publishableKey: "pk_test_XXXXXXXXXXXXX",  // Your Stripe Publishable Key (starts with pk_test_ or pk_live_)
+    // Note: Products are fetched via Supabase Edge Function for security
+    // The function uses your Stripe Secret Key server-side
+};
+
+// Payment redirect URL (where users return after payment)
+const STRIPE_REDIRECT_URL = "https://mikaeltalberg.github.io/EB-Okonomi/?payment_success=true";

@@ -530,32 +530,146 @@ async function signOut() {
 // PRODUCT SELECTION
 // ===========================
 
-// Show product selection page
-function showProductSelection() {
-    if (typeof STRIPE_PRODUCTS === 'undefined' || !STRIPE_PRODUCTS || STRIPE_PRODUCTS.length === 0) {
-        alert("Ingen produkter konfigurert. Vennligst kontakt support.");
-        console.error("STRIPE_PRODUCTS not defined in config.js");
-        return;
-    }
+// Fetch products from Stripe API via Supabase Edge Function
+async function fetchStripeProducts() {
+    try {
+        // Call Supabase Edge Function to fetch products from Stripe
+        const response = await fetch(
+            `${SUPABASE_CONFIG.url}/functions/v1/fetch-stripe-products`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
 
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        return data.products || [];
+    } catch (error) {
+        console.error("Error fetching Stripe products:", error);
+        // Fallback: return empty array or show error
+        return [];
+    }
+}
+
+// Show product selection page
+async function showProductSelection() {
     const container = document.getElementById('products-container');
-    container.innerHTML = '';
     
-    STRIPE_PRODUCTS.forEach(product => {
-        const card = document.createElement('div');
-        card.className = 'product-card';
-        card.innerHTML = `
-            <div class="product-name">${product.name}</div>
-            <div class="product-price">${product.price}</div>
-            <div class="product-description">${product.description}</div>
-            <button class="choose-button" onclick="selectProduct('${product.paymentLink}')">
-                Velg
-            </button>
-        `;
-        container.appendChild(card);
-    });
-    
+    // Show loading state
+    container.innerHTML = '<p style="text-align: center; padding: 2rem;">Laster produkter...</p>';
     document.getElementById('product-selection').classList.remove('hidden');
+    
+    try {
+        // Fetch products from API
+        const products = await fetchStripeProducts();
+        
+        if (!products || products.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 2rem;">
+                    <p style="color: #dc3545;">Ingen produkter tilgjengelig.</p>
+                    <p style="color: #666; margin-top: 1rem;">Vennligst kontakt support.</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Clear loading state
+        container.innerHTML = '';
+        
+        // Display products
+        products.forEach(product => {
+            const card = document.createElement('div');
+            card.className = 'product-card';
+            
+            // Format price for display
+            const priceDisplay = formatPrice(product.price);
+            
+            // Get payment link (from product metadata or construct from price)
+            const paymentLink = product.paymentLink || constructPaymentLink(product);
+            const productId = product.id || '';
+            const hasPaymentLink = paymentLink && paymentLink.trim() !== '';
+            
+            // Escape payment link for use in onclick
+            const escapedPaymentLink = hasPaymentLink ? paymentLink.replace(/'/g, "\\'") : '';
+            
+            // Create button - disabled if no payment link
+            const buttonHTML = hasPaymentLink
+                ? `<button class="choose-button" onclick="selectProduct('${escapedPaymentLink}', '${productId}')">Velg</button>`
+                : `<button class="choose-button" disabled style="opacity: 0.5; cursor: not-allowed;" title="Betalinglenke ikke konfigurert">Ikke tilgjengelig</button>`;
+            
+            card.innerHTML = `
+                <div class="product-name">${product.name || 'Abonnement'}</div>
+                <div class="product-price">${priceDisplay}</div>
+                <div class="product-description">${product.description || ''}</div>
+                ${!hasPaymentLink ? '<p style="color: #dc3545; font-size: 0.9rem; margin-top: 0.5rem;">⚠️ Betalinglenke mangler</p>' : ''}
+                ${buttonHTML}
+            `;
+            container.appendChild(card);
+        });
+        
+    } catch (error) {
+        console.error("Error loading products:", error);
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem;">
+                <p style="color: #dc3545;">Feil ved lasting av produkter.</p>
+                <p style="color: #666; margin-top: 1rem;">${error.message}</p>
+                <button onclick="showProductSelection()" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    Prøv igjen
+                </button>
+            </div>
+        `;
+    }
+}
+
+// Format price for display (convert from cents to currency)
+function formatPrice(priceData) {
+    if (!priceData) return 'Pris ikke tilgjengelig';
+    
+    // If priceData is an object with amount and currency
+    if (typeof priceData === 'object') {
+        const amount = priceData.unit_amount || priceData.amount || 0;
+        const currency = priceData.currency || 'nok';
+        const formatted = (amount / 100).toLocaleString('no-NO');
+        return `${formatted} ${currency.toUpperCase()}`;
+    }
+    
+    // If it's already a string, return as is
+    if (typeof priceData === 'string') {
+        return priceData;
+    }
+    
+    // If it's a number (in cents), convert
+    if (typeof priceData === 'number') {
+        return `${(priceData / 100).toLocaleString('no-NO')} NOK`;
+    }
+    
+    return 'Pris ikke tilgjengelig';
+}
+
+// Construct payment link from product/price data
+// Note: This requires Payment Links to be created in Stripe and stored in product metadata
+function constructPaymentLink(product) {
+    // If payment link is in metadata, use it
+    if (product.metadata && product.metadata.payment_link) {
+        return product.metadata.payment_link;
+    }
+    
+    // Otherwise, we need to create Payment Links in Stripe and store them
+    // For now, return empty - user needs to set up Payment Links
+    console.warn("Payment link not found for product:", product.id);
+    return '';
 }
 
 // Close product selection
@@ -564,15 +678,39 @@ function closeProductSelection() {
 }
 
 // Select product and redirect to Stripe Payment Link
-function selectProduct(paymentLink) {
-    if (!paymentLink || paymentLink.includes('...')) {
+async function selectProduct(paymentLink) {
+    if (!paymentLink || paymentLink.includes('...') || paymentLink.includes('XXXXXXXX')) {
         alert("Betalinglenke ikke konfigurert. Vennligst kontakt support.");
         console.error("Payment link not configured:", paymentLink);
         return;
     }
     
+    // Get current user session to pass user info to Stripe
+    let userId = null;
+    let userEmail = null;
+    
+    if (supabaseClient) {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session?.user) {
+            userId = session.user.id;
+            userEmail = session.user.email;
+        }
+    }
+    
+    // Add user metadata to payment link (if user is logged in)
+    // This helps Stripe identify the customer
+    let finalPaymentLink = paymentLink;
+    
+    if (userId && userEmail) {
+        // Add user info as URL parameters (Stripe Payment Links support this)
+        const separator = paymentLink.includes('?') ? '&' : '?';
+        finalPaymentLink = `${paymentLink}${separator}client_reference_id=${userId}&prefilled_email=${encodeURIComponent(userEmail)}`;
+    }
+    
+    console.log("Redirecting to Stripe Payment Link:", finalPaymentLink);
+    
     // Redirect to Stripe Payment Link
-    window.location.href = paymentLink;
+    window.location.href = finalPaymentLink;
 }
 
 // Poll for subscription status after payment
