@@ -65,14 +65,24 @@ async function initializeMSAL() {
         }
         
         // Wait for MSAL library to load (check multiple possible global names)
+        // Also check if fallback is still loading
+        if (window.msalScriptLoaded === false || (window.msalScriptLoaded === undefined && !window.msalLoadError)) {
+            console.log("⏳ Waiting for MSAL script to finish loading...");
+            // Wait up to 2 seconds for script to load
+            for (let i = 0; i < 20; i++) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (window.msalScriptLoaded === true || window.msalLoadError === true) break;
+            }
+        }
+        
         let msalLib = window.msal || window.Msal || (typeof msal !== 'undefined' ? msal : null) || (typeof Msal !== 'undefined' ? Msal : null);
         
         if (!msalLib) {
             console.warn("⚠️ MSAL library not loaded yet, waiting...");
             console.log("Checking for: window.msal, window.Msal, msal, Msal");
             
-            // Wait for MSAL to load (check every 100ms for up to 10 seconds)
-            for (let i = 0; i < 100; i++) {
+            // Wait for MSAL to load (check every 100ms for up to 15 seconds)
+            for (let i = 0; i < 150; i++) {
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
                 // Check all possible global names
@@ -86,14 +96,21 @@ async function initializeMSAL() {
                 // Log what's available for debugging
                 if (i % 10 === 0) {
                     console.log(`Still waiting... (${i/10}s) - window.msal: ${typeof window.msal}, window.Msal: ${typeof window.Msal}`);
+                    // Also log all window properties that might be MSAL
+                    const msalKeys = Object.keys(window).filter(k => k.toLowerCase().includes('msal'));
+                    if (msalKeys.length > 0) {
+                        console.log("Found window properties with 'msal':", msalKeys);
+                    }
                 }
             }
             
             if (!msalLib) {
-                console.error("❌ MSAL library failed to load after 10 seconds");
-                console.error("Available globals:", Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
+                console.error("❌ MSAL library failed to load after 15 seconds");
+                console.error("Available globals with 'msal':", Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
+                console.error("All window properties:", Object.keys(window).slice(0, 50)); // First 50 for debugging
                 console.error("Check if the MSAL script tag is present and the CDN is accessible");
                 console.error("Try checking Network tab to see if the script is loading");
+                console.error("If both CDNs are blocked, you may need to download MSAL locally");
                 msalInitializing = false;
                 return;
             }
