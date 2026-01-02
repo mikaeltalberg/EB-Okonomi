@@ -48,9 +48,27 @@
         })();
     </script>
     <!-- Primary CDN -->
-    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js" 
-            onerror="try { console.error('❌ Primary MSAL CDN failed, trying fallback...'); if (typeof window.loadMSALFallback === 'function') { window.loadMSALFallback(); } else { console.error('loadMSALFallback not available'); } } catch(e) { console.error('Error in onerror handler:', e); }"
-            onload="console.log('✅ MSAL script loaded from primary CDN'); window.msalScriptLoaded = true;"></script>
+    <script id="msal-primary-script" src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+    <script>
+        // Set up event listeners for MSAL script loading
+        (function() {
+            const msalScript = document.getElementById('msal-primary-script');
+            if (msalScript) {
+                msalScript.addEventListener('load', function() {
+                    console.log('✅ MSAL script loaded from primary CDN');
+                    window.msalScriptLoaded = true;
+                });
+                msalScript.addEventListener('error', function() {
+                    console.error('❌ Primary MSAL CDN failed, trying fallback...');
+                    if (typeof window.loadMSALFallback === 'function') {
+                        window.loadMSALFallback();
+                    } else {
+                        console.error('❌ loadMSALFallback function not available');
+                    }
+                });
+            }
+        })();
+    </script>
 </head>
 <body>
 
