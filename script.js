@@ -1079,6 +1079,65 @@ async function createUserProfile(userId, email) {
     }
 }
 
+// Create or update user profile for Microsoft users
+async function createOrUpdateMicrosoftUserProfile(email, microsoftAccount, supabaseUserId = null) {
+    if (!supabaseClient) return;
+
+    try {
+        // First, try to find existing profile by email
+        const { data: existingProfile } = await supabaseClient
+            .from('user_profiles')
+            .select('*')
+            .eq('email', email)
+            .single();
+
+        if (existingProfile) {
+            // Profile exists - update it if needed
+            console.log("✅ Microsoft user profile found:", existingProfile);
+            
+            // If we have a Supabase user ID and profile doesn't have it, update it
+            if (supabaseUserId && existingProfile.id !== supabaseUserId) {
+                await supabaseClient
+                    .from('user_profiles')
+                    .update({ id: supabaseUserId, updated_at: new Date().toISOString() })
+                    .eq('email', email);
+                console.log("✅ Linked Microsoft profile to Supabase user ID");
+            }
+            return existingProfile;
+        } else {
+            // No profile exists - create one with inactive status
+            const profileData = {
+                email: email,
+                plan_status: 'inactive',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            
+            // If we have a Supabase user ID, use it
+            if (supabaseUserId) {
+                profileData.id = supabaseUserId;
+            }
+            
+            const { data: newProfile, error } = await supabaseClient
+                .from('user_profiles')
+                .insert(profileData)
+                .select()
+                .single();
+
+            if (error) {
+                console.error("Error creating Microsoft user profile:", error);
+                return null;
+            } else {
+                console.log("✅ Microsoft user profile created (inactive):", newProfile);
+                return newProfile;
+            }
+        }
+    } catch (error) {
+        console.error("Error in createOrUpdateMicrosoftUserProfile:", error);
+        return null;
+    }
+}
+
 // Ensure user profile exists (useful for email confirmation flow)
 async function ensureUserProfile(userId, email) {
     if (!supabaseClient || !userId) return;
