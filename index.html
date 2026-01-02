@@ -48,8 +48,33 @@
             console.log('✅ loadMSALFallback function defined');
         })();
     </script>
-    <!-- Primary CDN -->
-    <script id="msal-primary-script" src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
+    <!-- Primary: Try local file first, then fallback to CDN -->
+    <script id="msal-primary-script" src="msal-browser.min.js" 
+            onerror="console.warn('⚠️ Local MSAL file not found, trying CDN...'); loadMSALFromCDN();"></script>
+    <script>
+        // Fallback to CDN if local file doesn't exist
+        function loadMSALFromCDN() {
+            if (window.msal || window.Msal) return; // Already loaded
+            console.log('🔄 Loading MSAL from CDN fallback...');
+            const script = document.createElement('script');
+            script.src = 'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';
+            script.onerror = function() {
+                console.error('❌ CDN also failed');
+                if (typeof window.loadMSALFallback === 'function') {
+                    window.loadMSALFallback();
+                }
+            };
+            script.onload = function() {
+                console.log('✅ MSAL loaded from CDN');
+                setTimeout(function() {
+                    if (window.msal || window.Msal) {
+                        window.msalScriptLoaded = true;
+                    }
+                }, 100);
+            };
+            document.head.appendChild(script);
+        }
+    </script>
     <script>
         // Set up event listeners for MSAL script loading
         (function() {
