@@ -11,14 +11,13 @@
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Microsoft Authentication Library (MSAL) -->
-    <!-- Primary CDN -->
-    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js" 
-            onerror="console.error('❌ Primary MSAL CDN failed, trying fallback...'); loadMSALFallback();"
-            onload="console.log('✅ MSAL script loaded from primary CDN'); window.msalScriptLoaded = true;"></script>
-    <!-- Fallback CDN via jsDelivr -->
+    <!-- Fallback function must be defined BEFORE the script tag that uses it -->
     <script>
-        function loadMSALFallback() {
-            if (window.msal || window.Msal) return; // Already loaded
+        window.loadMSALFallback = function() {
+            if (window.msal || window.Msal) {
+                console.log('✅ MSAL already loaded');
+                return;
+            }
             console.log('🔄 Loading MSAL from fallback CDN (jsDelivr)...');
             const script = document.createElement('script');
             script.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
@@ -31,8 +30,12 @@
                 window.msalScriptLoaded = true;
             };
             document.head.appendChild(script);
-        }
+        };
     </script>
+    <!-- Primary CDN -->
+    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js" 
+            onerror="console.error('❌ Primary MSAL CDN failed, trying fallback...'); if (window.loadMSALFallback) window.loadMSALFallback();"
+            onload="console.log('✅ MSAL script loaded from primary CDN'); window.msalScriptLoaded = true;"></script>
 </head>
 <body>
 
