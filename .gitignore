@@ -36,9 +36,9 @@ supabase_client.py
 server.py
 
 # Configuration files with API keys and tokens
-# Note: config.js is generated during deployment from GitHub Secrets
-# Keep it in .gitignore to prevent accidental commits
-config.js
+# Note: config.js now contains placeholders and is safe to commit
+# GitHub Actions will overwrite it with real values from secrets during deployment
+# config.js
 *.env
 .env.local
 .env.*.local
