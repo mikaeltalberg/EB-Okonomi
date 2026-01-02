@@ -26,9 +26,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify Secrets Exist
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
+            echo "❌ ERROR: SUPABASE_URL secret is missing!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "❌ ERROR: SUPABASE_ANON_KEY secret is missing!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.MSAL_CLIENT_ID }}" ]; then
+            echo "❌ ERROR: MSAL_CLIENT_ID secret is missing!"
+            exit 1
+          fi
+          echo "✅ All required secrets are present"
+
       - name: Generate config.js from Secrets
         run: |
-          cat > config.js << EOF
+          cat > config.js << 'EOF'
           // ===========================
           // SUPABASE CONFIGURATION
           // ===========================
@@ -73,6 +89,19 @@ jobs:
           };
           EOF
           echo "✅ config.js generated from GitHub Secrets"
+          
+      - name: Verify config.js was generated
+        run: |
+          if [ ! -f config.js ]; then
+            echo "❌ ERROR: config.js was not created!"
+            exit 1
+          fi
+          if grep -q "YOUR_SUPABASE" config.js; then
+            echo "❌ ERROR: config.js still contains placeholders!"
+            echo "Secrets may not be set correctly."
+            exit 1
+          fi
+          echo "✅ config.js verified - contains real values"
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
