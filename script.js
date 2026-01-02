@@ -25,38 +25,42 @@ let msalInstance = null;
 let microsoftAccount = null;
 let microsoftAccessToken = null;
 
-try {
-    if (typeof MSAL_CONFIG !== 'undefined' && MSAL_CONFIG.clientId && MSAL_CONFIG.clientId !== "YOUR_AZURE_AD_CLIENT_ID") {
-        const msalConfig = {
-            auth: {
-                clientId: MSAL_CONFIG.clientId,
-                authority: MSAL_CONFIG.authority,
-                redirectUri: MSAL_CONFIG.redirectUri
-            },
-            cache: {
-                cacheLocation: "sessionStorage",
-                storeAuthStateInCookie: false
-            }
-        };
+// Initialize MSAL asynchronously
+(async function initializeMSAL() {
+    try {
+        if (typeof MSAL_CONFIG !== 'undefined' && MSAL_CONFIG.clientId && MSAL_CONFIG.clientId !== "YOUR_AZURE_AD_CLIENT_ID") {
+            const msalConfig = {
+                auth: {
+                    clientId: MSAL_CONFIG.clientId,
+                    authority: MSAL_CONFIG.authority,
+                    redirectUri: MSAL_CONFIG.redirectUri
+                },
+                cache: {
+                    cacheLocation: "sessionStorage",
+                    storeAuthStateInCookie: false
+                }
+            };
 
-        msalInstance = new msal.PublicClientApplication(msalConfig);
-        
-        // Initialize MSAL
-        await msalInstance.initialize();
-        console.log("✅ MSAL initialized");
-        
-        // Check for existing accounts
-        const accounts = msalInstance.getAllAccounts();
-        if (accounts.length > 0) {
-            microsoftAccount = accounts[0];
-            console.log("✅ Microsoft account found:", microsoftAccount.username);
+            msalInstance = new msal.PublicClientApplication(msalConfig);
+            
+            // Initialize MSAL
+            await msalInstance.initialize();
+            console.log("✅ MSAL initialized");
+            
+            // Check for existing accounts
+            const accounts = msalInstance.getAllAccounts();
+            if (accounts.length > 0) {
+                microsoftAccount = accounts[0];
+                console.log("✅ Microsoft account found:", microsoftAccount.username);
+            }
+        } else {
+            console.warn("⚠️ Microsoft OAuth not configured. Set MSAL_CONFIG in config.js");
         }
-    } else {
-        console.warn("⚠️ Microsoft OAuth not configured. Set MSAL_CONFIG in config.js");
+    } catch (error) {
+        console.error("❌ Failed to initialize MSAL:", error);
+        // Don't block the app if MSAL fails - user can still use email login
     }
-} catch (error) {
-    console.error("❌ Failed to initialize MSAL:", error);
-}
+})();
 
 // ===========================
 // MICROSOFT OAUTH FUNCTIONS
@@ -64,9 +68,25 @@ try {
 
 // Sign in with Microsoft
 async function signInWithMicrosoft() {
+    // Wait a bit for MSAL to initialize if it's still loading
     if (!msalInstance) {
-        alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
-        return;
+        // Check if MSAL_CONFIG exists
+        if (typeof MSAL_CONFIG === 'undefined' || !MSAL_CONFIG.clientId || MSAL_CONFIG.clientId === "YOUR_AZURE_AD_CLIENT_ID") {
+            alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
+            return;
+        }
+        
+        // Wait up to 2 seconds for MSAL to initialize
+        let attempts = 0;
+        while (!msalInstance && attempts < 20) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (!msalInstance) {
+            alert("Microsoft OAuth initialiserer fortsatt. Prøv igjen om et øyeblikk.");
+            return;
+        }
     }
 
     try {
