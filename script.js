@@ -56,19 +56,44 @@ async function initializeMSAL() {
     msalInitializing = true;
     
     try {
-        // Wait for MSAL library to load (check both window.msal and msal)
-        let msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+        // Check if script failed to load
+        if (window.msalLoadError) {
+            console.error("❌ MSAL script failed to load from CDN");
+            console.error("The CDN might be blocked or inaccessible. Check network tab.");
+            msalInitializing = false;
+            return;
+        }
+        
+        // Wait for MSAL library to load (check multiple possible global names)
+        let msalLib = window.msal || window.Msal || (typeof msal !== 'undefined' ? msal : null) || (typeof Msal !== 'undefined' ? Msal : null);
+        
         if (!msalLib) {
             console.warn("⚠️ MSAL library not loaded yet, waiting...");
+            console.log("Checking for: window.msal, window.Msal, msal, Msal");
+            
             // Wait for MSAL to load (check every 100ms for up to 10 seconds)
             for (let i = 0; i < 100; i++) {
                 await new Promise(resolve => setTimeout(resolve, 100));
-                msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
-                if (msalLib) break;
+                
+                // Check all possible global names
+                msalLib = window.msal || window.Msal || (typeof msal !== 'undefined' ? msal : null) || (typeof Msal !== 'undefined' ? Msal : null);
+                
+                if (msalLib) {
+                    console.log("✅ Found MSAL library:", msalLib);
+                    break;
+                }
+                
+                // Log what's available for debugging
+                if (i % 10 === 0) {
+                    console.log(`Still waiting... (${i/10}s) - window.msal: ${typeof window.msal}, window.Msal: ${typeof window.Msal}`);
+                }
             }
+            
             if (!msalLib) {
                 console.error("❌ MSAL library failed to load after 10 seconds");
+                console.error("Available globals:", Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
                 console.error("Check if the MSAL script tag is present and the CDN is accessible");
+                console.error("Try checking Network tab to see if the script is loading");
                 msalInitializing = false;
                 return;
             }
@@ -89,7 +114,10 @@ async function initializeMSAL() {
                 }
             };
 
-            const MsalLib = window.msal || msal;
+            const MsalLib = window.msal || window.Msal || msal || Msal;
+            if (!MsalLib || !MsalLib.PublicClientApplication) {
+                throw new Error("MSAL library found but PublicClientApplication is not available");
+            }
             msalInstance = new MsalLib.PublicClientApplication(msalConfig);
             
             // Initialize MSAL
@@ -143,22 +171,34 @@ async function signInWithMicrosoft() {
         return;
     }
     
-    // Wait for MSAL library to load (check both window.msal and msal)
-    let msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+    // Check if script failed to load
+    if (window.msalLoadError) {
+        alert("Microsoft OAuth-biblioteket kunne ikke lastes. CDN kan være blokkert. Sjekk nettverk-fanen i utviklerverktøyene.");
+        console.error("MSAL script failed to load from CDN");
+        return;
+    }
+    
+    // Wait for MSAL library to load (check multiple possible global names)
+    let msalLib = window.msal || window.Msal || (typeof msal !== 'undefined' ? msal : null) || (typeof Msal !== 'undefined' ? Msal : null);
     if (!msalLib) {
         // Show loading message and wait
         const loadingMsg = "Microsoft OAuth-biblioteket lastes fortsatt. Vennligst vent...";
         console.log(loadingMsg);
+        console.log("Checking for: window.msal, window.Msal, msal, Msal");
         
         // Wait up to 10 seconds for MSAL library
         for (let i = 0; i < 100; i++) {
             await new Promise(resolve => setTimeout(resolve, 100));
-            msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
-            if (msalLib) break;
+            msalLib = window.msal || window.Msal || (typeof msal !== 'undefined' ? msal : null) || (typeof Msal !== 'undefined' ? Msal : null);
+            if (msalLib) {
+                console.log("✅ Found MSAL library in signInWithMicrosoft");
+                break;
+            }
         }
         if (!msalLib) {
             alert("Kunne ikke laste Microsoft OAuth-biblioteket. Prøv å oppdatere siden eller sjekk internettforbindelsen.");
-            console.error("MSAL library not found. Check browser console for script loading errors.");
+            console.error("MSAL library not found. Available globals:", Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
+            console.error("Check Network tab to see if https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js loaded successfully");
             return;
         }
     }
