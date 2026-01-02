@@ -44,6 +44,14 @@ jobs:
 
       - name: Generate config.js from Secrets
         run: |
+          # Trim whitespace from secrets to prevent issues
+          SUPABASE_URL=$(echo "${{ secrets.SUPABASE_URL }}" | xargs)
+          SUPABASE_ANON_KEY=$(echo "${{ secrets.SUPABASE_ANON_KEY }}" | xargs)
+          STRIPE_PUBLISHABLE_KEY=$(echo "${{ secrets.STRIPE_PUBLISHABLE_KEY }}" | xargs)
+          STRIPE_REDIRECT_URL=$(echo "${{ secrets.STRIPE_REDIRECT_URL }}" | xargs)
+          MSAL_CLIENT_ID=$(echo "${{ secrets.MSAL_CLIENT_ID }}" | xargs)
+          MSAL_AUTHORITY=$(echo "${{ secrets.MSAL_AUTHORITY }}" | xargs)
+          
           cat > config.js << EOF
           // ===========================
           // SUPABASE CONFIGURATION
@@ -53,8 +61,8 @@ jobs:
           // Secrets are stored in GitHub Secrets and injected here
           
           const SUPABASE_CONFIG = {
-              url: "${{ secrets.SUPABASE_URL }}",
-              anonKey: "${{ secrets.SUPABASE_ANON_KEY }}"
+              url: "${SUPABASE_URL}",
+              anonKey: "${SUPABASE_ANON_KEY}"
           };
           
           // ===========================
@@ -62,18 +70,18 @@ jobs:
           // ===========================
           
           const STRIPE_CONFIG = {
-              publishableKey: "${{ secrets.STRIPE_PUBLISHABLE_KEY }}"
+              publishableKey: "${STRIPE_PUBLISHABLE_KEY}"
           };
           
-          const STRIPE_REDIRECT_URL = "${{ secrets.STRIPE_REDIRECT_URL }}";
+          const STRIPE_REDIRECT_URL = "${STRIPE_REDIRECT_URL}";
           
           // ===========================
           // MICROSOFT OAUTH CONFIGURATION
           // ===========================
           
           const MSAL_CONFIG = {
-              clientId: "${{ secrets.MSAL_CLIENT_ID }}",
-              authority: "${{ secrets.MSAL_AUTHORITY }}",
+              clientId: "${MSAL_CLIENT_ID}",
+              authority: "${MSAL_AUTHORITY}",
               redirectUri: window.location.origin + window.location.pathname,
               scopes: [
                   "User.Read",
