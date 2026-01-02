@@ -13,38 +13,43 @@
     <!-- Microsoft Authentication Library (MSAL) -->
     <!-- Fallback function must be defined BEFORE the script tag that uses it -->
     <script>
-        window.loadMSALFallback = function() {
-            if (window.msal || window.Msal) {
-                console.log('✅ MSAL already loaded');
-                return;
-            }
-            console.log('🔄 Loading MSAL from fallback CDN (jsDelivr)...');
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
-            script.onerror = function() {
-                console.error('❌ Fallback CDN also failed');
-                console.error('Both primary and fallback CDNs failed. MSAL may be blocked by browser or network.');
-                window.msalLoadError = true;
+        // Define fallback function immediately
+        (function() {
+            window.loadMSALFallback = function() {
+                if (window.msal || window.Msal) {
+                    console.log('✅ MSAL already loaded');
+                    return;
+                }
+                console.log('🔄 Loading MSAL from fallback CDN (jsDelivr)...');
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
+                script.onerror = function() {
+                    console.error('❌ Fallback CDN also failed');
+                    console.error('Both primary and fallback CDNs failed. MSAL may be blocked by browser or network.');
+                    window.msalLoadError = true;
+                };
+                script.onload = function() {
+                    console.log('✅ MSAL script loaded from fallback CDN');
+                    // Wait a moment for the library to initialize
+                    setTimeout(function() {
+                        if (window.msal || window.Msal) {
+                            console.log('✅ MSAL library detected after fallback load');
+                            window.msalScriptLoaded = true;
+                        } else {
+                            console.warn('⚠️ MSAL script loaded but library not detected. Checking globals...');
+                            console.log('Available globals with "msal":', Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
+                        }
+                    }, 100);
+                };
+                document.head.appendChild(script);
             };
-            script.onload = function() {
-                console.log('✅ MSAL script loaded from fallback CDN');
-                // Wait a moment for the library to initialize
-                setTimeout(function() {
-                    if (window.msal || window.Msal) {
-                        console.log('✅ MSAL library detected after fallback load');
-                        window.msalScriptLoaded = true;
-                    } else {
-                        console.warn('⚠️ MSAL script loaded but library not detected. Checking globals...');
-                        console.log('Available globals with "msal":', Object.keys(window).filter(k => k.toLowerCase().includes('msal')));
-                    }
-                }, 100);
-            };
-            document.head.appendChild(script);
-        };
+            // Make it available globally immediately
+            console.log('✅ loadMSALFallback function defined');
+        })();
     </script>
     <!-- Primary CDN -->
     <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js" 
-            onerror="console.error('❌ Primary MSAL CDN failed, trying fallback...'); if (window.loadMSALFallback) window.loadMSALFallback();"
+            onerror="try { console.error('❌ Primary MSAL CDN failed, trying fallback...'); if (typeof window.loadMSALFallback === 'function') { window.loadMSALFallback(); } else { console.error('loadMSALFallback not available'); } } catch(e) { console.error('Error in onerror handler:', e); }"
             onload="console.log('✅ MSAL script loaded from primary CDN'); window.msalScriptLoaded = true;"></script>
 </head>
 <body>
