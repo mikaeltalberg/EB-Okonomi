@@ -28,6 +28,7 @@ jobs:
 
       - name: Verify Secrets Exist
         run: |
+          # Required secrets (must be present)
           if [ -z "${{ secrets.SUPABASE_URL }}" ]; then
             echo "❌ ERROR: SUPABASE_URL secret is missing!"
             exit 1
@@ -36,11 +37,22 @@ jobs:
             echo "❌ ERROR: SUPABASE_ANON_KEY secret is missing!"
             exit 1
           fi
+          
+          # Optional but recommended secrets (warn if missing)
           if [ -z "${{ secrets.MSAL_CLIENT_ID }}" ]; then
-            echo "❌ ERROR: MSAL_CLIENT_ID secret is missing!"
-            exit 1
+            echo "⚠️  WARNING: MSAL_CLIENT_ID secret is missing - Microsoft login will not work"
           fi
-          echo "✅ All required secrets are present"
+          if [ -z "${{ secrets.MSAL_AUTHORITY }}" ]; then
+            echo "⚠️  WARNING: MSAL_AUTHORITY secret is missing - will use default 'common'"
+          fi
+          if [ -z "${{ secrets.STRIPE_PUBLISHABLE_KEY }}" ]; then
+            echo "⚠️  WARNING: STRIPE_PUBLISHABLE_KEY secret is missing - Stripe payments will not work"
+          fi
+          if [ -z "${{ secrets.STRIPE_REDIRECT_URL }}" ]; then
+            echo "⚠️  WARNING: STRIPE_REDIRECT_URL secret is missing - payment redirects will not work"
+          fi
+          
+          echo "✅ Secret verification complete"
 
       - name: Generate config.js from Secrets
         run: |
@@ -50,7 +62,11 @@ jobs:
           STRIPE_PUBLISHABLE_KEY=$(echo "${{ secrets.STRIPE_PUBLISHABLE_KEY }}" | xargs)
           STRIPE_REDIRECT_URL=$(echo "${{ secrets.STRIPE_REDIRECT_URL }}" | xargs)
           MSAL_CLIENT_ID=$(echo "${{ secrets.MSAL_CLIENT_ID }}" | xargs)
+          # Use default authority if not set
           MSAL_AUTHORITY=$(echo "${{ secrets.MSAL_AUTHORITY }}" | xargs)
+          if [ -z "$MSAL_AUTHORITY" ]; then
+            MSAL_AUTHORITY="https://login.microsoftonline.com/common"
+          fi
           
           cat > config.js << EOF
           // ===========================
@@ -76,8 +92,11 @@ jobs:
           const STRIPE_REDIRECT_URL = "${STRIPE_REDIRECT_URL}";
           
           // ===========================
-          // MICROSOFT OAUTH CONFIGURATION
+          // MICROSOFT OAUTH CONFIGURATION (OPTIONAL)
           // ===========================
+          // Microsoft OAuth is available as an additional login option.
+          // When logged in with Microsoft, app data is synced to OneDrive.
+          // Subscription status is still managed in Supabase.
           
           const MSAL_CONFIG = {
               clientId: "${MSAL_CLIENT_ID}",
@@ -90,7 +109,7 @@ jobs:
               ]
           };
           
-          // Office 365 API endpoints
+          // Office 365 API endpoints (for OneDrive data storage)
           const OFFICE365_CONFIG = {
               graphEndpoint: "https://graph.microsoft.com/v1.0",
               dataFolderName: "EB-Okonomi-Data"
@@ -104,11 +123,21 @@ jobs:
             echo "❌ ERROR: config.js was not created!"
             exit 1
           fi
-          if grep -q "YOUR_SUPABASE" config.js; then
+          
+          # Check for any remaining placeholders
+          if grep -q "YOUR_SUPABASE\|YOUR_STRIPE\|YOUR_MSAL" config.js; then
             echo "❌ ERROR: config.js still contains placeholders!"
             echo "Secrets may not be set correctly."
+            grep "YOUR_" config.js || true
             exit 1
           fi
+          
+          # Verify critical values are not empty
+          if grep -q 'url: ""' config.js || grep -q 'anonKey: ""' config.js; then
+            echo "❌ ERROR: Critical Supabase config values are empty!"
+            exit 1
+          fi
+          
           echo "✅ config.js verified - contains real values"
 
       - name: Setup Pages

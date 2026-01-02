@@ -21,12 +21,12 @@ const SUPABASE_CONFIG = {
 // ===========================
 // 
 // Stripe API Configuration
-// Products are now fetched dynamically from Stripe API via Supabase Edge Function
+// Products are fetched dynamically from Stripe API via Supabase Edge Function
 //
 // To set up:
 // 1. Get your Stripe Publishable Key from: https://dashboard.stripe.com/apikeys
 // 2. Add it below (safe to expose in client-side code)
-// 3. Set up the Supabase Edge Function (see Guide/STRIPE_API_SETUP.md)
+// 3. Set up the Supabase Edge Function (see Documents/STRIPE_API_SETUP.md)
 //
 const STRIPE_CONFIG = {
     publishableKey: "YOUR_STRIPE_PUBLISHABLE_KEY_HERE",  // Replace with your Stripe key or use GitHub Secret: STRIPE_PUBLISHABLE_KEY
@@ -38,9 +38,13 @@ const STRIPE_CONFIG = {
 const STRIPE_REDIRECT_URL = "YOUR_STRIPE_REDIRECT_URL_HERE";  // Replace with your redirect URL or use GitHub Secret: STRIPE_REDIRECT_URL
 
 // ===========================
-// MICROSOFT OAUTH CONFIGURATION
+// MICROSOFT OAUTH CONFIGURATION (OPTIONAL)
 // ===========================
 // 
+// Microsoft OAuth is available as an additional login option.
+// When logged in with Microsoft, app data is synced to OneDrive.
+// Subscription status is still managed in Supabase.
+//
 // To set up Microsoft OAuth:
 // 1. Go to Azure Portal: https://portal.azure.com
 // 2. Navigate to Azure Active Directory > App registrations
@@ -48,21 +52,19 @@ const STRIPE_REDIRECT_URL = "YOUR_STRIPE_REDIRECT_URL_HERE";  // Replace with yo
 // 4. Fill in:
 //    - Name: EB-Okonomi (or your app name)
 //    - Supported account types: Accounts in any organizational directory and personal Microsoft accounts
-//    - Redirect URI: Web - https://mikaeltalberg.github.io/EB-Okonomi/ (or your domain)
+//    - Redirect URI: Single-page application (SPA) - https://mikaeltalberg.github.io/EB-Okonomi/ (or your domain)
 // 5. After registration, copy:
 //    - Application (client) ID → MSAL_CONFIG.clientId
-//    - Directory (tenant) ID → MSAL_CONFIG.authority (optional, can use 'common')
-// 6. Go to "Certificates & secrets" and create a client secret (if needed for backend)
-// 7. Go to "API permissions" and add:
+// 6. Go to "API permissions" and add:
 //    - Microsoft Graph > Delegated permissions:
 //      * User.Read (for basic profile)
 //      * Files.ReadWrite.All (for OneDrive access)
 //      * offline_access (for refresh tokens)
-// 8. Click "Grant admin consent" for your organization
+// 7. Click "Grant admin consent" for your organization
 
 const MSAL_CONFIG = {
     clientId: "YOUR_MSAL_CLIENT_ID_HERE",  // Replace with your Azure AD Client ID or use GitHub Secret: MSAL_CLIENT_ID
-    authority: "https://login.microsoftonline.com/common",  // Use 'common' for multi-tenant, or use GitHub Secret: MSAL_AUTHORITY
+    authority: "https://login.microsoftonline.com/common",  // Use 'common' for multi-tenant
     redirectUri: window.location.origin + window.location.pathname,  // Auto-detect current URL
     // Scopes required for authentication and OneDrive access
     scopes: [
@@ -72,7 +74,7 @@ const MSAL_CONFIG = {
     ]
 };
 
-// Office 365 API endpoints
+// Office 365 API endpoints (for OneDrive data storage)
 const OFFICE365_CONFIG = {
     graphEndpoint: "https://graph.microsoft.com/v1.0",
     // OneDrive folder name where app data will be stored
