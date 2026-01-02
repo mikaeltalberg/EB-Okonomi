@@ -56,16 +56,19 @@ async function initializeMSAL() {
     msalInitializing = true;
     
     try {
-        // Wait for MSAL library to load
-        if (typeof msal === 'undefined') {
+        // Wait for MSAL library to load (check both window.msal and msal)
+        let msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+        if (!msalLib) {
             console.warn("⚠️ MSAL library not loaded yet, waiting...");
-            // Wait for MSAL to load (check every 100ms for up to 5 seconds)
-            for (let i = 0; i < 50; i++) {
+            // Wait for MSAL to load (check every 100ms for up to 10 seconds)
+            for (let i = 0; i < 100; i++) {
                 await new Promise(resolve => setTimeout(resolve, 100));
-                if (typeof msal !== 'undefined') break;
+                msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+                if (msalLib) break;
             }
-            if (typeof msal === 'undefined') {
-                console.error("❌ MSAL library failed to load");
+            if (!msalLib) {
+                console.error("❌ MSAL library failed to load after 10 seconds");
+                console.error("Check if the MSAL script tag is present and the CDN is accessible");
                 msalInitializing = false;
                 return;
             }
@@ -86,7 +89,8 @@ async function initializeMSAL() {
                 }
             };
 
-            msalInstance = new msal.PublicClientApplication(msalConfig);
+            const MsalLib = window.msal || msal;
+            msalInstance = new MsalLib.PublicClientApplication(msalConfig);
             
             // Initialize MSAL
             await msalInstance.initialize();
@@ -110,8 +114,20 @@ async function initializeMSAL() {
     }
 }
 
-// Start initialization on page load
-initializeMSAL();
+// Start initialization after page and scripts are loaded
+if (document.readyState === 'loading') {
+    window.addEventListener('load', () => {
+        // Give MSAL script a moment to initialize
+        setTimeout(() => {
+            initializeMSAL();
+        }, 500);
+    });
+} else {
+    // Page already loaded, wait a bit for MSAL script
+    setTimeout(() => {
+        initializeMSAL();
+    }, 500);
+}
 
 // ===========================
 // MICROSOFT OAUTH FUNCTIONS
@@ -127,16 +143,22 @@ async function signInWithMicrosoft() {
         return;
     }
     
-    // Wait for MSAL library to load
-    if (typeof msal === 'undefined') {
-        alert("Microsoft OAuth-biblioteket lastes fortsatt. Vennligst vent...");
-        // Wait up to 5 seconds for MSAL library
-        for (let i = 0; i < 50; i++) {
+    // Wait for MSAL library to load (check both window.msal and msal)
+    let msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+    if (!msalLib) {
+        // Show loading message and wait
+        const loadingMsg = "Microsoft OAuth-biblioteket lastes fortsatt. Vennligst vent...";
+        console.log(loadingMsg);
+        
+        // Wait up to 10 seconds for MSAL library
+        for (let i = 0; i < 100; i++) {
             await new Promise(resolve => setTimeout(resolve, 100));
-            if (typeof msal !== 'undefined') break;
+            msalLib = window.msal || (typeof msal !== 'undefined' ? msal : null);
+            if (msalLib) break;
         }
-        if (typeof msal === 'undefined') {
-            alert("Kunne ikke laste Microsoft OAuth-biblioteket. Prøv å oppdatere siden.");
+        if (!msalLib) {
+            alert("Kunne ikke laste Microsoft OAuth-biblioteket. Prøv å oppdatere siden eller sjekk internettforbindelsen.");
+            console.error("MSAL library not found. Check browser console for script loading errors.");
             return;
         }
     }
