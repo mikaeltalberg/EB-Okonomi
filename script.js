@@ -1,29 +1,9 @@
 // ===========================
 // SUPABASE CLIENT INITIALIZATION
 // ===========================
-
-// Initialize Supabase client
-let supabaseClient = null;
-
-try {
-    if (typeof SUPABASE_CONFIG !== 'undefined' && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
-        // Check if values are placeholders (not configured)
-        if (SUPABASE_CONFIG.url.includes("YOUR_SUPABASE") || 
-            SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE") ||
-            SUPABASE_CONFIG.url === "YOUR_SUPABASE_URL_HERE" ||
-            SUPABASE_CONFIG.anonKey === "YOUR_SUPABASE_ANON_KEY_HERE") {
-            console.error("❌ Supabase config contains placeholders. GitHub Actions should inject real values from secrets.");
-            console.error("If you see this on the live site, check GitHub Actions workflow status.");
-        } else {
-            supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-            console.log("✅ Supabase client initialized");
-        }
-    } else {
-        console.error("❌ Supabase config not found. Make sure config.js is loaded.");
-    }
-} catch (error) {
-    console.error("❌ Failed to initialize Supabase client:", error);
-}
+// NOTE: Supabase has been removed - we now use Microsoft (Azure AD + OneDrive) only
+// This section is kept for reference but supabaseClient is no longer used
+let supabaseClient = null; // Deprecated - not used anymore
 
 // ===========================
 // MICROSOFT OAUTH & OFFICE 365 INITIALIZATION
@@ -263,35 +243,27 @@ async function signInWithMicrosoft() {
         
         console.log("✅ Microsoft sign-in successful:", microsoftAccount.username);
         
-        // After Microsoft login, create/update Supabase user profile
-        // This ensures subscription checks work for Microsoft users too
-        if (supabaseClient) {
-            try {
-                const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
-                console.log("Syncing Microsoft user with Supabase:", microsoftEmail);
-                
-                // Try to sign in to Supabase with Microsoft email (passwordless)
-                // If user doesn't exist, create a profile
-                const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-                
-                if (!session) {
-                    // No Supabase session - try to sign in with email (magic link or password reset)
-                    // For now, we'll create/update the profile directly
-                    console.log("No Supabase session, creating/updating profile for Microsoft user");
-                    
-                    // Create or update user profile in Supabase
-                    await createOrUpdateMicrosoftUserProfile(microsoftEmail, microsoftAccount);
-                } else {
-                    // User has Supabase session - update profile if needed
-                    console.log("Supabase session exists, updating profile if needed");
-                    await createOrUpdateMicrosoftUserProfile(microsoftEmail, microsoftAccount, session.user.id);
+        // After Microsoft login, create/update user profile in OneDrive
+        const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
+        console.log("Creating/updating user profile in OneDrive:", microsoftEmail);
+        
+        // Get or create user profile
+        let profile = await getUserProfileFromOneDrive(microsoftEmail);
+        if (!profile) {
+            // Create new profile with inactive subscription
+            await saveUserProfileToOneDrive(microsoftEmail, {
+                subscription: {
+                    status: 'inactive',
+                    plan: null,
+                    startDate: null,
+                    endDate: null,
+                    stripeCustomerId: null,
+                    stripeSubscriptionId: null
                 }
-            } catch (error) {
-                console.error("Could not sync Microsoft user with Supabase:", error);
-            }
+            });
         }
         
-        // Check auth and subscription (this will verify subscription status)
+        // Check auth and subscription (this will verify subscription status from OneDrive)
         await checkAuthAndSubscription();
         
     } catch (error) {
@@ -353,6 +325,194 @@ async function getMicrosoftAccessToken() {
 // ===========================
 // OFFICE 365 API FUNCTIONS (OneDrive Storage)
 // ===========================
+
+// User Profile Storage in OneDrive
+// Store user profiles in: EB-Okonomi-Data/Users/{email}/profile.json
+
+// Get or create user folder in OneDrive
+async function getUserFolder(email) {
+    const accessToken = await getMicrosoftAccessToken();
+    if (!accessToken) {
+        throw new Error("Not authenticated with Microsoft");
+    }
+
+    try {
+        const dataFolder = await getOrCreateDataFolder();
+        const usersFolderName = "Users";
+        
+        // Check if Users folder exists
+        const usersFolderUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${dataFolder.id}/children?$filter=name eq '${usersFolderName}' and folder ne null`;
+        const usersFolderResponse = await fetch(usersFolderUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        let usersFolder;
+        if (usersFolderResponse.ok) {
+            const usersFolderData = await usersFolderResponse.json();
+            if (usersFolderData.value && usersFolderData.value.length > 0) {
+                usersFolder = usersFolderData.value[0];
+            }
+        }
+
+        // Create Users folder if it doesn't exist
+        if (!usersFolder) {
+            const createUsersFolderUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${dataFolder.id}/children`;
+            const createResponse = await fetch(createUsersFolderUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: usersFolderName,
+                    folder: {},
+                    '@microsoft.graph.conflictBehavior': 'rename'
+                })
+            });
+
+            if (!createResponse.ok) {
+                throw new Error(`Failed to create Users folder: ${createResponse.statusText}`);
+            }
+            usersFolder = await createResponse.json();
+        }
+
+        // Get or create user-specific folder
+        const userFolderName = email.replace(/[^a-zA-Z0-9@._-]/g, '_'); // Sanitize email for folder name
+        const userFolderUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${usersFolder.id}/children?$filter=name eq '${userFolderName}' and folder ne null`;
+        const userFolderResponse = await fetch(userFolderUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        let userFolder;
+        if (userFolderResponse.ok) {
+            const userFolderData = await userFolderResponse.json();
+            if (userFolderData.value && userFolderData.value.length > 0) {
+                userFolder = userFolderData.value[0];
+            }
+        }
+
+        // Create user folder if it doesn't exist
+        if (!userFolder) {
+            const createUserFolderUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${usersFolder.id}/children`;
+            const createResponse = await fetch(createUserFolderUrl, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: userFolderName,
+                    folder: {},
+                    '@microsoft.graph.conflictBehavior': 'rename'
+                })
+            });
+
+            if (!createResponse.ok) {
+                throw new Error(`Failed to create user folder: ${createResponse.statusText}`);
+            }
+            userFolder = await createResponse.json();
+        }
+
+        return userFolder;
+    } catch (error) {
+        console.error("Error getting user folder:", error);
+        throw error;
+    }
+}
+
+// Get user profile from OneDrive
+async function getUserProfileFromOneDrive(email) {
+    if (!microsoftAccount) {
+        return null;
+    }
+
+    try {
+        const accessToken = await getMicrosoftAccessToken();
+        if (!accessToken) {
+            return null;
+        }
+
+        const userFolder = await getUserFolder(email);
+        const profileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${userFolder.id}:/profile.json:/content`;
+        
+        const response = await fetch(profileUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        if (response.ok) {
+            const profile = await response.json();
+            return profile;
+        } else if (response.status === 404) {
+            // Profile doesn't exist yet
+            return null;
+        } else {
+            throw new Error(`Failed to get profile: ${response.statusText}`);
+        }
+    } catch (error) {
+        console.error("Error getting user profile from OneDrive:", error);
+        return null;
+    }
+}
+
+// Save user profile to OneDrive
+async function saveUserProfileToOneDrive(email, profileData) {
+    if (!microsoftAccount) {
+        console.warn("Not using Microsoft, cannot save profile to OneDrive");
+        return false;
+    }
+
+    try {
+        const accessToken = await getMicrosoftAccessToken();
+        if (!accessToken) {
+            throw new Error("Not authenticated with Microsoft");
+        }
+
+        const userFolder = await getUserFolder(email);
+        const profileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${userFolder.id}:/profile.json:/content`;
+        
+        // Ensure profile has required fields
+        const profile = {
+            email: email,
+            subscription: profileData.subscription || {
+                status: 'inactive',
+                plan: null,
+                startDate: null,
+                endDate: null,
+                stripeCustomerId: null,
+                stripeSubscriptionId: null
+            },
+            createdAt: profileData.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        const response = await fetch(profileUrl, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(profile, null, 2)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save profile: ${response.statusText}`);
+        }
+
+        console.log("✅ User profile saved to OneDrive");
+        return true;
+    } catch (error) {
+        console.error("Error saving user profile to OneDrive:", error);
+        return false;
+    }
+}
 
 // Get or create the app data folder in OneDrive
 async function getOrCreateDataFolder() {
@@ -598,38 +758,31 @@ async function checkAuthAndSubscription() {
             console.log("✅ Microsoft user authenticated:", microsoftAccount.username);
             const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
             
-            // IMPORTANT: Microsoft users must also have Supabase subscription
-            // Check Supabase subscription status for Microsoft user
-            if (!supabaseClient) {
-                showAuthError("Supabase ikke konfigurert. Sjekk config.js");
-                return;
-            }
+            // Check subscription status from OneDrive user profile
+            const profile = await getUserProfileFromOneDrive(microsoftEmail);
             
-            // Check if user has active subscription in Supabase
-            const { data: profile, error: profileError } = await supabaseClient
-                .from('user_profiles')
-                .select('plan_status, subscription_end, email, id')
-                .eq('email', microsoftEmail)
-                .single();
-            
-            if (profileError && profileError.code === 'PGRST116') {
-                // No profile found - user needs to subscribe
-                console.log("No Supabase profile found for Microsoft user:", microsoftEmail);
-                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Logg inn med e-post for å abonnere.");
+            if (!profile) {
+                // No profile found - create one with inactive status
+                console.log("No profile found for Microsoft user, creating inactive profile:", microsoftEmail);
+                await saveUserProfileToOneDrive(microsoftEmail, {
+                    subscription: {
+                        status: 'inactive',
+                        plan: null,
+                        startDate: null,
+                        endDate: null,
+                        stripeCustomerId: null,
+                        stripeSubscriptionId: null
+                    }
+                });
+                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Klikk på 'Abonner' for å betale.");
                 showLoginPrompt();
                 return;
             }
             
-            if (profileError) {
-                console.error("Error checking profile:", profileError);
-                showAuthError("Feil ved sjekk av abonnement. Prøv igjen.");
-                return;
-            }
-            
             // Check if user has active subscription
-            const hasActiveSubscription = profile && 
-                profile.plan_status === 'active' && 
-                (!profile.subscription_end || new Date(profile.subscription_end) > new Date());
+            const subscription = profile.subscription || {};
+            const hasActiveSubscription = subscription.status === 'active' && 
+                (!subscription.endDate || new Date(subscription.endDate) > new Date());
             
             if (hasActiveSubscription) {
                 // User has active subscription - grant access
@@ -643,7 +796,7 @@ async function checkAuthAndSubscription() {
             } else {
                 // User doesn't have active subscription
                 console.log("Microsoft user does not have active subscription:", microsoftEmail);
-                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Logg inn med e-post for å fornye abonnementet.");
+                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Klikk på 'Abonner' for å betale.");
                 showLoginPrompt();
                 return;
             }
@@ -656,94 +809,9 @@ async function checkAuthAndSubscription() {
         }
     }
 
-    // Check Supabase authentication
-    if (!supabaseClient) {
-        showAuthError("Supabase ikke konfigurert. Sjekk config.js");
-        return;
-    }
-
-    try {
-        // Get current session
-        const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-        
-        if (sessionError) {
-            console.error("Session error:", sessionError);
-            showLoginPrompt();
-            return;
-        }
-
-        if (!session) {
-            // No session - show login
-            showLoginPrompt();
-            return;
-        }
-
-        // User is authenticated - check subscription
-        const user = session.user;
-        console.log("✅ User authenticated:", user.email);
-
-        // Check subscription status from user profile
-        let profile = null;
-        let profileError = null;
-        
-        // First try to get profile by user ID
-        const profileResult = await supabaseClient
-            .from('user_profiles')
-            .select('plan_status, subscription_end, email')
-            .eq('id', user.id)
-            .single();
-
-        profile = profileResult.data;
-        profileError = profileResult.error;
-
-        // If no profile by ID, try by email (for users who paid before signing up)
-        if (profileError && profileError.code === 'PGRST116') {
-            const profileByEmailResult = await supabaseClient
-                .from('user_profiles')
-                .select('plan_status, subscription_end, email')
-                .eq('email', user.email)
-                .single();
-            
-            if (profileByEmailResult.data) {
-                profile = profileByEmailResult.data;
-                // Link the profile to the user ID
-                await supabaseClient
-                    .from('user_profiles')
-                    .update({ id: user.id })
-                    .eq('email', user.email);
-            }
-        } else if (profileError && profileError.code !== 'PGRST116') {
-            console.error("Profile error:", profileError);
-        }
-
-        // Check if user has active subscription
-        let hasAccess = false;
-        
-        if (profile && profile.plan_status === 'active' && 
-            (!profile.subscription_end || new Date(profile.subscription_end) > new Date())) {
-            hasAccess = true;
-        }
-
-        if (hasAccess) {
-            // User has active subscription - hide paywall
-            userHasAccess = true; // Set global access flag
-            hidePaywall();
-            showUserInfo(user.email);
-            // Show settings button
-            const settingsBtn = document.getElementById('user-settings');
-            if (settingsBtn) settingsBtn.classList.remove('hidden');
-        } else {
-            // User authenticated but no subscription
-            userHasAccess = false; // Clear access flag
-            showSubscriptionPrompt(user.email);
-            const settingsBtn = document.getElementById('user-settings');
-            if (settingsBtn) settingsBtn.classList.add('hidden');
-        }
-
-    } catch (error) {
-        console.error("Auth check error:", error);
-        showAuthError("Feil ved autentisering. Prøv igjen.");
-    }
+    // No Microsoft account - show login prompt
+    // (We only support Microsoft authentication now)
+    showLoginPrompt();
 }
 
 // Show login prompt
