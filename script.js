@@ -17,11 +17,403 @@ try {
 }
 
 // ===========================
+// MICROSOFT OAUTH & OFFICE 365 INITIALIZATION
+// ===========================
+
+// Initialize MSAL (Microsoft Authentication Library)
+let msalInstance = null;
+let microsoftAccount = null;
+let microsoftAccessToken = null;
+
+try {
+    if (typeof MSAL_CONFIG !== 'undefined' && MSAL_CONFIG.clientId && MSAL_CONFIG.clientId !== "YOUR_AZURE_AD_CLIENT_ID") {
+        const msalConfig = {
+            auth: {
+                clientId: MSAL_CONFIG.clientId,
+                authority: MSAL_CONFIG.authority,
+                redirectUri: MSAL_CONFIG.redirectUri
+            },
+            cache: {
+                cacheLocation: "sessionStorage",
+                storeAuthStateInCookie: false
+            }
+        };
+
+        msalInstance = new msal.PublicClientApplication(msalConfig);
+        
+        // Initialize MSAL
+        await msalInstance.initialize();
+        console.log("✅ MSAL initialized");
+        
+        // Check for existing accounts
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+            microsoftAccount = accounts[0];
+            console.log("✅ Microsoft account found:", microsoftAccount.username);
+        }
+    } else {
+        console.warn("⚠️ Microsoft OAuth not configured. Set MSAL_CONFIG in config.js");
+    }
+} catch (error) {
+    console.error("❌ Failed to initialize MSAL:", error);
+}
+
+// ===========================
+// MICROSOFT OAUTH FUNCTIONS
+// ===========================
+
+// Sign in with Microsoft
+async function signInWithMicrosoft() {
+    if (!msalInstance) {
+        alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
+        return;
+    }
+
+    try {
+        const loginRequest = {
+            scopes: MSAL_CONFIG.scopes,
+            prompt: "select_account"
+        };
+
+        const loginResponse = await msalInstance.loginPopup(loginRequest);
+        microsoftAccount = loginResponse.account;
+        microsoftAccessToken = loginResponse.accessToken;
+        
+        console.log("✅ Microsoft sign-in successful:", microsoftAccount.username);
+        
+        // After Microsoft login, also create/update Supabase user profile
+        // This allows the app to work with both auth systems
+        if (supabaseClient) {
+            try {
+                // Try to sign in to Supabase with Microsoft email
+                // If user doesn't exist, we'll create a profile after
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (!session) {
+                    // Create a session-less profile or use email-based auth
+                    console.log("Creating Supabase profile for Microsoft user");
+                }
+            } catch (error) {
+                console.warn("Could not sync with Supabase:", error);
+            }
+        }
+        
+        // Check auth and subscription
+        await checkAuthAndSubscription();
+        
+    } catch (error) {
+        console.error("Microsoft sign-in error:", error);
+        if (error.errorCode === "user_cancelled") {
+            console.log("User cancelled Microsoft login");
+        } else {
+            alert("Feil ved innlogging med Microsoft: " + (error.message || error.errorCode));
+        }
+    }
+}
+
+// Sign out from Microsoft
+async function signOutMicrosoft() {
+    if (msalInstance && microsoftAccount) {
+        try {
+            await msalInstance.logoutPopup({
+                account: microsoftAccount
+            });
+            microsoftAccount = null;
+            microsoftAccessToken = null;
+            console.log("✅ Microsoft sign-out successful");
+        } catch (error) {
+            console.error("Microsoft sign-out error:", error);
+        }
+    }
+}
+
+// Get Microsoft access token (with refresh if needed)
+async function getMicrosoftAccessToken() {
+    if (!msalInstance || !microsoftAccount) {
+        return null;
+    }
+
+    try {
+        const tokenRequest = {
+            scopes: MSAL_CONFIG.scopes,
+            account: microsoftAccount
+        };
+
+        // Try to get token silently first
+        let tokenResponse;
+        try {
+            tokenResponse = await msalInstance.acquireTokenSilent(tokenRequest);
+        } catch (silentError) {
+            // If silent fails, use popup
+            console.log("Silent token acquisition failed, using popup");
+            tokenResponse = await msalInstance.acquireTokenPopup(tokenRequest);
+        }
+
+        microsoftAccessToken = tokenResponse.accessToken;
+        return microsoftAccessToken;
+    } catch (error) {
+        console.error("Error getting Microsoft access token:", error);
+        return null;
+    }
+}
+
+// ===========================
+// OFFICE 365 API FUNCTIONS (OneDrive Storage)
+// ===========================
+
+// Get or create the app data folder in OneDrive
+async function getOrCreateDataFolder() {
+    const accessToken = await getMicrosoftAccessToken();
+    if (!accessToken) {
+        throw new Error("Not authenticated with Microsoft");
+    }
+
+    try {
+        // First, try to find the folder
+        const searchUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/root/children?$filter=name eq '${OFFICE365_CONFIG.dataFolderName}' and folder ne null`;
+        const searchResponse = await fetch(searchUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!searchResponse.ok) {
+            throw new Error(`Failed to search folder: ${searchResponse.statusText}`);
+        }
+
+        const searchData = await searchResponse.json();
+        
+        if (searchData.value && searchData.value.length > 0) {
+            // Folder exists
+            return searchData.value[0];
+        }
+
+        // Folder doesn't exist, create it
+        const createUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/root/children`;
+        const createResponse = await fetch(createUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: OFFICE365_CONFIG.dataFolderName,
+                folder: {},
+                '@microsoft.graph.conflictBehavior': 'rename'
+            })
+        });
+
+        if (!createResponse.ok) {
+            throw new Error(`Failed to create folder: ${createResponse.statusText}`);
+        }
+
+        const folderData = await createResponse.json();
+        console.log("✅ Created OneDrive folder:", folderData.name);
+        return folderData;
+    } catch (error) {
+        console.error("Error getting/creating data folder:", error);
+        throw error;
+    }
+}
+
+// Save data file to OneDrive
+async function saveDataToOneDrive(filename, data) {
+    if (!microsoftAccount) {
+        // Fallback to localStorage if not using Microsoft
+        console.warn("Not using Microsoft, falling back to localStorage");
+        return false;
+    }
+
+    try {
+        const accessToken = await getMicrosoftAccessToken();
+        if (!accessToken) {
+            throw new Error("Not authenticated with Microsoft");
+        }
+
+        const folder = await getOrCreateDataFolder();
+        const fileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${folder.id}:/${filename}:/content`;
+        
+        // Convert data to JSON string for file content
+        const fileContent = JSON.stringify(data, null, 2);
+
+        const response = await fetch(fileUrl, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: fileContent
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save file: ${response.statusText}`);
+        }
+
+        console.log(`✅ Saved ${filename} to OneDrive`);
+        return true;
+    } catch (error) {
+        console.error("Error saving to OneDrive:", error);
+        // Fallback to localStorage
+        return false;
+    }
+}
+
+// Load data file from OneDrive
+async function loadDataFromOneDrive(filename) {
+    if (!microsoftAccount) {
+        // Fallback to localStorage if not using Microsoft
+        return null;
+    }
+
+    try {
+        const accessToken = await getMicrosoftAccessToken();
+        if (!accessToken) {
+            throw new Error("Not authenticated with Microsoft");
+        }
+
+        const folder = await getOrCreateDataFolder();
+        const fileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${folder.id}:/${filename}:/content`;
+
+        const response = await fetch(fileUrl, {
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            }
+        });
+
+        if (!response.ok) {
+            if (response.status === 404) {
+                // File doesn't exist yet
+                return null;
+            }
+            throw new Error(`Failed to load file: ${response.statusText}`);
+        }
+
+        // Get the file content
+        const text = await response.text();
+        const data = JSON.parse(text);
+        console.log(`✅ Loaded ${filename} from OneDrive`);
+        return data;
+    } catch (error) {
+        console.error("Error loading from OneDrive:", error);
+        return null;
+    }
+}
+
+// Save all app data to OneDrive
+async function saveAllDataToOneDrive() {
+    if (!microsoftAccount) {
+        // Fallback to localStorage
+        lagreData();
+        return;
+    }
+
+    try {
+        const allData = {
+            inntekter,
+            utgifter,
+            skyldnere,
+            skyldBeløp,
+            skyldStatus,
+            betalingsDatoer,
+            egenkapitalHistorikk,
+            datoer,
+            inntektsDatoer,
+            utgiftsDatoer,
+            inntektsBeskrivelser,
+            utgiftsBeskrivelser,
+            andeler,
+            andelVerdi,
+            oppstartstid,
+            avviklingstid
+        };
+
+        await saveDataToOneDrive("app-data.json", allData);
+        console.log("✅ All data saved to OneDrive");
+    } catch (error) {
+        console.error("Error saving all data to OneDrive:", error);
+        // Fallback to localStorage
+        lagreData();
+    }
+}
+
+// Load all app data from OneDrive
+async function loadAllDataFromOneDrive() {
+    if (!microsoftAccount) {
+        // Fallback to localStorage (already loaded on page load)
+        return;
+    }
+
+    try {
+        const data = await loadDataFromOneDrive("app-data.json");
+        if (data) {
+            // Restore all data from OneDrive
+            inntekter = data.inntekter || [];
+            utgifter = data.utgifter || [];
+            skyldnere = data.skyldnere || [];
+            skyldBeløp = data.skyldBeløp || [];
+            skyldStatus = data.skyldStatus || [];
+            betalingsDatoer = data.betalingsDatoer || [];
+            egenkapitalHistorikk = data.egenkapitalHistorikk || [];
+            datoer = data.datoer || [];
+            inntektsDatoer = data.inntektsDatoer || [];
+            utgiftsDatoer = data.utgiftsDatoer || [];
+            inntektsBeskrivelser = data.inntektsBeskrivelser || [];
+            utgiftsBeskrivelser = data.utgiftsBeskrivelser || [];
+            andeler = data.andeler || 0;
+            andelVerdi = data.andelVerdi || 0;
+            oppstartstid = data.oppstartstid || "";
+            avviklingstid = data.avviklingstid || "";
+
+            // Update UI
+            document.getElementById("andeler").value = andeler;
+            document.getElementById("andelVerdi").value = andelVerdi;
+            document.getElementById("start").value = oppstartstid;
+            document.getElementById("end").value = avviklingstid;
+
+            oppdaterListe("inntekter-list", inntekter, inntektsBeskrivelser, "inntekter");
+            oppdaterListe("utgifter-list", utgifter, utgiftsBeskrivelser, "utgifter");
+            oppdaterListeSkyldnere();
+
+            console.log("✅ All data loaded from OneDrive");
+        }
+    } catch (error) {
+        console.error("Error loading all data from OneDrive:", error);
+        // Data already loaded from localStorage on page load
+    }
+}
+
+// ===========================
 // AUTHENTICATION & PAYWALL
 // ===========================
 
 // Check authentication and subscription status
 async function checkAuthAndSubscription() {
+    // Check Microsoft authentication first
+    if (microsoftAccount) {
+        try {
+            // Verify Microsoft token is still valid
+            const token = await getMicrosoftAccessToken();
+            if (token) {
+                console.log("✅ Microsoft user authenticated:", microsoftAccount.username);
+                // For Microsoft users, we can grant access directly or check Supabase subscription
+                // If you want to require Supabase subscription even for Microsoft users, keep the check below
+                // For now, Microsoft auth grants access
+                userHasAccess = true;
+                hidePaywall();
+                showUserInfo(microsoftAccount.username);
+                
+                // Load data from OneDrive
+                await loadAllDataFromOneDrive();
+                return;
+            }
+        } catch (error) {
+            console.error("Microsoft token verification failed:", error);
+            microsoftAccount = null;
+            microsoftAccessToken = null;
+        }
+    }
+
+    // Check Supabase authentication
     if (!supabaseClient) {
         showAuthError("Supabase ikke konfigurert. Sjekk config.js");
         return;
@@ -81,34 +473,12 @@ async function checkAuthAndSubscription() {
             console.error("Profile error:", profileError);
         }
 
-        // Check if user has active subscription (direct or via license)
+        // Check if user has active subscription
         let hasAccess = false;
         
         if (profile && profile.plan_status === 'active' && 
             (!profile.subscription_end || new Date(profile.subscription_end) > new Date())) {
             hasAccess = true;
-        } else {
-            // Check if user is granted access via license
-            const { data: license } = await supabaseClient
-                .from('license_users')
-                .select('license_owner_id')
-                .eq('email', user.email)
-                .eq('is_active', true)
-                .single();
-            
-            if (license) {
-                // Check if license owner has active subscription
-                const { data: ownerProfile } = await supabaseClient
-                    .from('user_profiles')
-                    .select('plan_status, subscription_end')
-                    .eq('id', license.license_owner_id)
-                    .single();
-                
-                if (ownerProfile && ownerProfile.plan_status === 'active' &&
-                    (!ownerProfile.subscription_end || new Date(ownerProfile.subscription_end) > new Date())) {
-                    hasAccess = true;
-                }
-            }
         }
 
         if (hasAccess) {
@@ -506,24 +876,26 @@ function showSignupError(message) {
 
 // Sign out
 async function signOut() {
-    if (!supabaseClient) {
-        alert("Supabase ikke konfigurert");
-        return;
+    // Sign out from Microsoft if logged in
+    if (microsoftAccount) {
+        await signOutMicrosoft();
     }
 
-    try {
-        const { error } = await supabaseClient.auth.signOut();
-        if (error) throw error;
-        
-        // Clear local data
-        localStorage.removeItem("abonnent");
-        
-        // Show login prompt
-        showLoginPrompt();
-    } catch (error) {
-        console.error("Sign out error:", error);
-        alert("Feil ved utlogging: " + error.message);
+    // Sign out from Supabase if configured
+    if (supabaseClient) {
+        try {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) throw error;
+        } catch (error) {
+            console.error("Supabase sign out error:", error);
+        }
     }
+    
+    // Clear local data
+    localStorage.removeItem("abonnent");
+    
+    // Show login prompt
+    showLoginPrompt();
 }
 
 // ===========================
@@ -781,9 +1153,6 @@ async function showSettingsModal() {
         document.getElementById('subscription-info').innerHTML = 'Ingen abonnement funnet.';
     }
     
-    // Load license users
-    await loadLicenseUsers();
-    
     document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -791,93 +1160,6 @@ function closeSettingsModal() {
     document.getElementById('settings-modal').classList.add('hidden');
 }
 
-async function loadLicenseUsers() {
-    if (!supabaseClient) return;
-    
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) return;
-    
-    const { data: users } = await supabaseClient
-        .from('license_users')
-        .select('*')
-        .eq('license_owner_id', session.user.id)
-        .eq('is_active', true);
-    
-    const container = document.getElementById('license-users-list');
-    container.innerHTML = '';
-    
-    if (users && users.length > 0) {
-        users.forEach(user => {
-            const div = document.createElement('div');
-            div.innerHTML = `
-                <span>${user.email}</span>
-                <button onclick="removeLicenseUser('${user.id}')">Fjern</button>
-            `;
-            container.appendChild(div);
-        });
-    }
-    
-    // Show count
-    const count = users ? users.length : 0;
-    const countP = document.createElement('p');
-    countP.style.marginTop = '0.5rem';
-    countP.textContent = `Antall: ${count}/5`;
-    container.appendChild(countP);
-}
-
-async function addLicenseUser() {
-    if (!supabaseClient) return;
-    
-    const email = document.getElementById('new-license-email').value.trim();
-    if (!email) {
-        alert('Vennligst oppgi en e-postadresse');
-        return;
-    }
-    
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) return;
-    
-    // Check count
-    const { data: existing } = await supabaseClient
-        .from('license_users')
-        .select('id')
-        .eq('license_owner_id', session.user.id)
-        .eq('is_active', true);
-    
-    if (existing && existing.length >= 5) {
-        alert('Maksimalt 5 e-postadresser per lisens');
-        return;
-    }
-    
-    const { error } = await supabaseClient
-        .from('license_users')
-        .insert({
-            license_owner_id: session.user.id,
-            email: email
-        });
-    
-    if (error) {
-        alert('Feil: ' + error.message);
-    } else {
-        document.getElementById('new-license-email').value = '';
-        await loadLicenseUsers();
-    }
-}
-
-async function removeLicenseUser(userId) {
-    if (!supabaseClient) return;
-    
-    const { error } = await supabaseClient
-        .from('license_users')
-        .update({ is_active: false })
-        .eq('id', userId);
-    
-    if (!error) {
-        await loadLicenseUsers();
-    } else {
-        alert('Feil ved fjerning: ' + error.message);
-    }
-}
 
 // ===========================
 // INITIALIZE AUTH ON PAGE LOAD
@@ -997,6 +1279,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     } else {
         // Normal page load - check auth immediately
         await checkAuthAndSubscription();
+        
+        // If Microsoft auth is active, load data from OneDrive
+        if (microsoftAccount) {
+            await loadAllDataFromOneDrive();
+        }
     }
 
     // Listen for auth state changes
@@ -1360,9 +1647,10 @@ function slettElement(index, type) {
 }
 
 // ========================================================================
-// Lagre alt på localStorage
+// Lagre alt på localStorage og OneDrive (hvis Microsoft auth)
 // ========================================================================
-function lagreData() {
+async function lagreData() {
+    // Always save to localStorage as backup
     localStorage.setItem("inntekter", JSON.stringify(inntekter));
     localStorage.setItem("utgifter", JSON.stringify(utgifter));
     localStorage.setItem("skyldnere", JSON.stringify(skyldnere));
@@ -1379,6 +1667,15 @@ function lagreData() {
     localStorage.setItem("andelVerdi", andelVerdi);
     localStorage.setItem("oppstartstid", oppstartstid);
     localStorage.setItem("avviklingstid", avviklingstid);
+    
+    // Also save to OneDrive if using Microsoft auth
+    if (microsoftAccount) {
+        try {
+            await saveAllDataToOneDrive();
+        } catch (error) {
+            console.warn("Failed to save to OneDrive, using localStorage only:", error);
+        }
+    }
 }
 
 // ========================================================================

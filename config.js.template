@@ -1,0 +1,39 @@
+// ===========================
+// CONFIG TEMPLATE
+// ===========================
+// 
+// This is a template file. The actual config.js is generated during deployment
+// from GitHub Secrets via GitHub Actions.
+//
+// For local development, copy this to config.js and fill in your values.
+// For production, GitHub Actions will generate config.js automatically.
+//
+// DO NOT commit config.js - it's in .gitignore
+
+const SUPABASE_CONFIG = {
+    url: "YOUR_SUPABASE_URL_HERE",
+    anonKey: "YOUR_SUPABASE_ANON_KEY_HERE"
+};
+
+const STRIPE_CONFIG = {
+    publishableKey: "YOUR_STRIPE_PUBLISHABLE_KEY_HERE"
+};
+
+const STRIPE_REDIRECT_URL = "YOUR_STRIPE_REDIRECT_URL_HERE";
+
+const MSAL_CONFIG = {
+    clientId: "YOUR_MSAL_CLIENT_ID_HERE",
+    authority: "https://login.microsoftonline.com/common",
+    redirectUri: window.location.origin + window.location.pathname,
+    scopes: [
+        "User.Read",
+        "Files.ReadWrite.All",
+        "offline_access"
+    ]
+};
+
+const OFFICE365_CONFIG = {
+    graphEndpoint: "https://graph.microsoft.com/v1.0",
+    dataFolderName: "EB-Okonomi-Data"
+};
+

@@ -35,9 +35,43 @@ Thumbs.db
 supabase_client.py
 server.py
 
-# Note: config.js is NOT ignored because:
-# 1. It's needed for GitHub Pages deployment (static site hosting)
-# 2. The Supabase anon key is safe to expose (designed for client-side use)
-# 3. Security comes from Row Level Security (RLS) policies, not hiding the key
-# If you need to keep it private, use environment variables or a build process instead
+# Configuration files with API keys and tokens
+# Note: config.js is generated during deployment from GitHub Secrets
+# Keep it in .gitignore to prevent accidental commits
+config.js
+*.env
+.env.local
+.env.*.local
+
+# Secrets and tokens
+secrets/
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Azure/Microsoft credentials
+azure-credentials.json
+msal-cache.json
+
+# Stripe keys (if any local files)
+stripe-keys.txt
+stripe-secret.txt
+
+# Supabase service role keys (NEVER commit these!)
+supabase-service-role-key.txt
+service-role-key.txt
+
+# Documentation and guides (not tracked in git)
+Documents/
+Guide/
+User-Management-Notes/
+
+# Note about config.js:
+# - config.js contains Supabase anon key (safe to expose - designed for client-side)
+# - config.js contains Microsoft OAuth client ID (safe to expose - public identifier)
+# - However, if you add Stripe publishable keys or other sensitive data, keep config.js in .gitignore
+# - For GitHub Pages: You can manually add config.js after deployment, or use GitHub Secrets
+# - Use config.js.example as a template (this file IS tracked in git)
 

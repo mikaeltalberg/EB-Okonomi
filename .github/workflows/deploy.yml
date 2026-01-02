@@ -1,0 +1,88 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate config.js from Secrets
+        run: |
+          cat > config.js << EOF
+          // ===========================
+          // SUPABASE CONFIGURATION
+          // ===========================
+          // 
+          // This file is auto-generated during deployment
+          // Secrets are stored in GitHub Secrets and injected here
+          
+          const SUPABASE_CONFIG = {
+              url: "${{ secrets.SUPABASE_URL }}",
+              anonKey: "${{ secrets.SUPABASE_ANON_KEY }}"
+          };
+          
+          // ===========================
+          // STRIPE CONFIGURATION
+          // ===========================
+          
+          const STRIPE_CONFIG = {
+              publishableKey: "${{ secrets.STRIPE_PUBLISHABLE_KEY }}"
+          };
+          
+          const STRIPE_REDIRECT_URL = "${{ secrets.STRIPE_REDIRECT_URL }}";
+          
+          // ===========================
+          // MICROSOFT OAUTH CONFIGURATION
+          // ===========================
+          
+          const MSAL_CONFIG = {
+              clientId: "${{ secrets.MSAL_CLIENT_ID }}",
+              authority: "${{ secrets.MSAL_AUTHORITY }}",
+              redirectUri: window.location.origin + window.location.pathname,
+              scopes: [
+                  "User.Read",
+                  "Files.ReadWrite.All",
+                  "offline_access"
+              ]
+          };
+          
+          // Office 365 API endpoints
+          const OFFICE365_CONFIG = {
+              graphEndpoint: "https://graph.microsoft.com/v1.0",
+              dataFolderName: "EB-Okonomi-Data"
+          };
+          EOF
+          echo "✅ config.js generated from GitHub Secrets"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

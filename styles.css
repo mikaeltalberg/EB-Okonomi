@@ -484,26 +484,3 @@ canvas {
     font-size: 1.1rem;
 }
 
-#license-users-list {
-    margin: 1rem 0;
-}
-
-#license-users-list div {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem;
-    background: white;
-    margin: 0.5rem 0;
-    border-radius: 4px;
-}
-
-#license-users-list button {
-    background: #dc3545;
-    padding: 0.5rem 1rem;
-    font-size: 0.9rem;
-}
-
-#license-users-list button:hover {
-    background: #c82333;
-}

@@ -10,6 +10,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
     <!-- Supabase JS Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Microsoft Authentication Library (MSAL) -->
+    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 </head>
 <body>
 
@@ -24,6 +26,9 @@
             </div>
             
             <div id="login-buttons" style="display: none;">
+                <button onclick="signInWithMicrosoft()" class="oauth-button" style="background-color: #0078d4; color: white;">
+                    🔷 Logg inn med Microsoft
+                </button>
                 <!-- Google and GitHub login temporarily disabled -->
                 <!-- <button onclick="signInWithGoogle()" class="oauth-button">
                     🔵 Logg inn med Google
@@ -118,14 +123,6 @@
             <div class="settings-section">
                 <h3>Abonnement</h3>
                 <p id="subscription-info">Laster...</p>
-            </div>
-            
-            <!-- License Users (optional) -->
-            <div class="settings-section">
-                <h3>Gi tilgang til e-postadresser (maks 5)</h3>
-                <div id="license-users-list"></div>
-                <input type="email" id="new-license-email" placeholder="E-postadresse" style="width: 70%; margin-right: 10px;">
-                <button onclick="addLicenseUser()">Legg til</button>
             </div>
             
             <button onclick="closeSettingsModal()" class="close-button">Lukk</button>
