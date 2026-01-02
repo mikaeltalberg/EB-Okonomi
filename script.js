@@ -242,11 +242,21 @@ async function signInWithMicrosoft() {
     }
 
     try {
+        // Log the actual configuration being used
+        console.log("🔍 MSAL Login Configuration:");
+        console.log("  - Client ID:", MSAL_CONFIG.clientId);
+        console.log("  - Authority:", MSAL_CONFIG.authority);
+        console.log("  - Redirect URI:", MSAL_CONFIG.redirectUri);
+        console.log("  - Current URL:", window.location.href);
+        console.log("  - Origin:", window.location.origin);
+        console.log("  - Pathname:", window.location.pathname);
+        
         const loginRequest = {
             scopes: MSAL_CONFIG.scopes,
             prompt: "select_account"
         };
 
+        console.log("🔍 Login Request:", loginRequest);
         const loginResponse = await msalInstance.loginPopup(loginRequest);
         microsoftAccount = loginResponse.account;
         microsoftAccessToken = loginResponse.accessToken;
