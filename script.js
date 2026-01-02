@@ -7,8 +7,17 @@ let supabaseClient = null;
 
 try {
     if (typeof SUPABASE_CONFIG !== 'undefined' && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
-        supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-        console.log("✅ Supabase client initialized");
+        // Check if values are placeholders (not configured)
+        if (SUPABASE_CONFIG.url.includes("YOUR_SUPABASE") || 
+            SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE") ||
+            SUPABASE_CONFIG.url === "YOUR_SUPABASE_URL_HERE" ||
+            SUPABASE_CONFIG.anonKey === "YOUR_SUPABASE_ANON_KEY_HERE") {
+            console.error("❌ Supabase config contains placeholders. GitHub Actions should inject real values from secrets.");
+            console.error("If you see this on the live site, check GitHub Actions workflow status.");
+        } else {
+            supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
+            console.log("✅ Supabase client initialized");
+        }
     } else {
         console.error("❌ Supabase config not found. Make sure config.js is loaded.");
     }
