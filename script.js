@@ -587,23 +587,72 @@ async function checkAuthAndSubscription() {
         try {
             // Verify Microsoft token is still valid
             const token = await getMicrosoftAccessToken();
-            if (token) {
-                console.log("✅ Microsoft user authenticated:", microsoftAccount.username);
-                // For Microsoft users, we can grant access directly or check Supabase subscription
-                // If you want to require Supabase subscription even for Microsoft users, keep the check below
-                // For now, Microsoft auth grants access
+            if (!token) {
+                console.error("Microsoft token verification failed");
+                microsoftAccount = null;
+                microsoftAccessToken = null;
+                showLoginPrompt();
+                return;
+            }
+            
+            console.log("✅ Microsoft user authenticated:", microsoftAccount.username);
+            const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
+            
+            // IMPORTANT: Microsoft users must also have Supabase subscription
+            // Check Supabase subscription status for Microsoft user
+            if (!supabaseClient) {
+                showAuthError("Supabase ikke konfigurert. Sjekk config.js");
+                return;
+            }
+            
+            // Check if user has active subscription in Supabase
+            const { data: profile, error: profileError } = await supabaseClient
+                .from('user_profiles')
+                .select('plan_status, subscription_end, email, id')
+                .eq('email', microsoftEmail)
+                .single();
+            
+            if (profileError && profileError.code === 'PGRST116') {
+                // No profile found - user needs to subscribe
+                console.log("No Supabase profile found for Microsoft user:", microsoftEmail);
+                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Logg inn med e-post for å abonnere.");
+                showLoginPrompt();
+                return;
+            }
+            
+            if (profileError) {
+                console.error("Error checking profile:", profileError);
+                showAuthError("Feil ved sjekk av abonnement. Prøv igjen.");
+                return;
+            }
+            
+            // Check if user has active subscription
+            const hasActiveSubscription = profile && 
+                profile.plan_status === 'active' && 
+                (!profile.subscription_end || new Date(profile.subscription_end) > new Date());
+            
+            if (hasActiveSubscription) {
+                // User has active subscription - grant access
                 userHasAccess = true;
                 hidePaywall();
-                showUserInfo(microsoftAccount.username);
+                showUserInfo(microsoftEmail);
                 
                 // Load data from OneDrive
                 await loadAllDataFromOneDrive();
+                return;
+            } else {
+                // User doesn't have active subscription
+                console.log("Microsoft user does not have active subscription:", microsoftEmail);
+                showAuthError("Du må ha et aktivt abonnement for å få tilgang. Logg inn med e-post for å fornye abonnementet.");
+                showLoginPrompt();
                 return;
             }
         } catch (error) {
             console.error("Microsoft token verification failed:", error);
             microsoftAccount = null;
             microsoftAccessToken = null;
+            showLoginPrompt();
+            return;
         }
     }
 
