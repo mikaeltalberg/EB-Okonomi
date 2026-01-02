@@ -1213,7 +1213,7 @@ async function requireAccess() {
             throw new Error("Sesjon utløpt. Vennligst logg inn på nytt.");
         }
     }
-}
+} 
 
 async function leggTilUtgift() {
     // Security check
