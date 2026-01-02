@@ -44,7 +44,7 @@ jobs:
 
       - name: Generate config.js from Secrets
         run: |
-          cat > config.js << 'EOF'
+          cat > config.js << EOF
           // ===========================
           // SUPABASE CONFIGURATION
           // ===========================
