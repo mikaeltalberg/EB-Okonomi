@@ -263,23 +263,35 @@ async function signInWithMicrosoft() {
         
         console.log("✅ Microsoft sign-in successful:", microsoftAccount.username);
         
-        // After Microsoft login, also create/update Supabase user profile
-        // This allows the app to work with both auth systems
+        // After Microsoft login, create/update Supabase user profile
+        // This ensures subscription checks work for Microsoft users too
         if (supabaseClient) {
             try {
-                // Try to sign in to Supabase with Microsoft email
-                // If user doesn't exist, we'll create a profile after
-                const { data: { session } } = await supabaseClient.auth.getSession();
+                const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
+                console.log("Syncing Microsoft user with Supabase:", microsoftEmail);
+                
+                // Try to sign in to Supabase with Microsoft email (passwordless)
+                // If user doesn't exist, create a profile
+                const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+                
                 if (!session) {
-                    // Create a session-less profile or use email-based auth
-                    console.log("Creating Supabase profile for Microsoft user");
+                    // No Supabase session - try to sign in with email (magic link or password reset)
+                    // For now, we'll create/update the profile directly
+                    console.log("No Supabase session, creating/updating profile for Microsoft user");
+                    
+                    // Create or update user profile in Supabase
+                    await createOrUpdateMicrosoftUserProfile(microsoftEmail, microsoftAccount);
+                } else {
+                    // User has Supabase session - update profile if needed
+                    console.log("Supabase session exists, updating profile if needed");
+                    await createOrUpdateMicrosoftUserProfile(microsoftEmail, microsoftAccount, session.user.id);
                 }
             } catch (error) {
-                console.warn("Could not sync with Supabase:", error);
+                console.error("Could not sync Microsoft user with Supabase:", error);
             }
         }
         
-        // Check auth and subscription
+        // Check auth and subscription (this will verify subscription status)
         await checkAuthAndSubscription();
         
     } catch (error) {
