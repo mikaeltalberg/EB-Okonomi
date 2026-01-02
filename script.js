@@ -33,11 +33,47 @@ try {
 let msalInstance = null;
 let microsoftAccount = null;
 let microsoftAccessToken = null;
+let msalInitializing = false;
+let msalInitialized = false;
 
-// Initialize MSAL asynchronously
-(async function initializeMSAL() {
+// Initialize MSAL function (can be called multiple times safely)
+async function initializeMSAL() {
+    // If already initialized, return
+    if (msalInitialized && msalInstance) {
+        return;
+    }
+    
+    // If already initializing, wait for it
+    if (msalInitializing) {
+        let attempts = 0;
+        while (msalInitializing && attempts < 50) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        return;
+    }
+    
+    msalInitializing = true;
+    
     try {
-        if (typeof MSAL_CONFIG !== 'undefined' && MSAL_CONFIG.clientId && MSAL_CONFIG.clientId !== "YOUR_AZURE_AD_CLIENT_ID") {
+        // Wait for MSAL library to load
+        if (typeof msal === 'undefined') {
+            console.warn("⚠️ MSAL library not loaded yet, waiting...");
+            // Wait for MSAL to load (check every 100ms for up to 5 seconds)
+            for (let i = 0; i < 50; i++) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                if (typeof msal !== 'undefined') break;
+            }
+            if (typeof msal === 'undefined') {
+                console.error("❌ MSAL library failed to load");
+                msalInitializing = false;
+                return;
+            }
+        }
+        
+        if (typeof MSAL_CONFIG !== 'undefined' && MSAL_CONFIG.clientId && 
+            MSAL_CONFIG.clientId !== "YOUR_AZURE_AD_CLIENT_ID" && 
+            MSAL_CONFIG.clientId !== "YOUR_MSAL_CLIENT_ID_HERE") {
             const msalConfig = {
                 auth: {
                     clientId: MSAL_CONFIG.clientId,
@@ -54,6 +90,7 @@ let microsoftAccessToken = null;
             
             // Initialize MSAL
             await msalInstance.initialize();
+            msalInitialized = true;
             console.log("✅ MSAL initialized");
             
             // Check for existing accounts
@@ -68,8 +105,13 @@ let microsoftAccessToken = null;
     } catch (error) {
         console.error("❌ Failed to initialize MSAL:", error);
         // Don't block the app if MSAL fails - user can still use email login
+    } finally {
+        msalInitializing = false;
     }
-})();
+}
+
+// Start initialization on page load
+initializeMSAL();
 
 // ===========================
 // MICROSOFT OAUTH FUNCTIONS
@@ -77,19 +119,41 @@ let microsoftAccessToken = null;
 
 // Sign in with Microsoft
 async function signInWithMicrosoft() {
-    // Wait a bit for MSAL to initialize if it's still loading
-    if (!msalInstance) {
-        // Check if MSAL_CONFIG exists
-        if (typeof MSAL_CONFIG === 'undefined' || !MSAL_CONFIG.clientId || MSAL_CONFIG.clientId === "YOUR_AZURE_AD_CLIENT_ID") {
-            alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
+    // Check if MSAL_CONFIG exists
+    if (typeof MSAL_CONFIG === 'undefined' || !MSAL_CONFIG.clientId || 
+        MSAL_CONFIG.clientId === "YOUR_AZURE_AD_CLIENT_ID" || 
+        MSAL_CONFIG.clientId === "YOUR_MSAL_CLIENT_ID_HERE") {
+        alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
+        return;
+    }
+    
+    // Wait for MSAL library to load
+    if (typeof msal === 'undefined') {
+        alert("Microsoft OAuth-biblioteket lastes fortsatt. Vennligst vent...");
+        // Wait up to 5 seconds for MSAL library
+        for (let i = 0; i < 50; i++) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (typeof msal !== 'undefined') break;
+        }
+        if (typeof msal === 'undefined') {
+            alert("Kunne ikke laste Microsoft OAuth-biblioteket. Prøv å oppdatere siden.");
             return;
         }
-        
-        // Wait up to 2 seconds for MSAL to initialize
-        let attempts = 0;
-        while (!msalInstance && attempts < 20) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-            attempts++;
+    }
+    
+    // Wait for MSAL to initialize if it's still loading
+    if (!msalInstance) {
+        // If initialization hasn't started, start it now
+        if (!msalInitializing && !msalInitialized) {
+            console.log("Starting MSAL initialization...");
+            await initializeMSAL();
+        } else {
+            // Wait up to 5 seconds for MSAL to initialize
+            let attempts = 0;
+            while (!msalInstance && attempts < 50) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                attempts++;
+            }
         }
         
         if (!msalInstance) {
