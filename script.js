@@ -1211,8 +1211,7 @@ async function signOut() {
 // PRODUCT SELECTION
 // ===========================
 
-// Fetch products from Stripe API
-// TODO: Implement direct Stripe API call or use serverless function
+// Fetch products from Stripe API via Supabase Edge Function
 async function fetchStripeProducts() {
     if (typeof DEBUG !== 'undefined') {
         DEBUG.time('fetchStripeProducts');
@@ -1220,18 +1219,59 @@ async function fetchStripeProducts() {
     }
     
     try {
-        // TODO: Replace with direct Stripe API call or serverless function
-        // For now, return empty array - products should be configured manually
-        console.warn("fetchStripeProducts() needs to be implemented with Stripe API");
+        // Check if Supabase config is available
+        if (!SUPABASE_CONFIG || !SUPABASE_CONFIG.url) {
+            throw new Error('Supabase configuration not found');
+        }
+
+        // Call Supabase Edge Function to fetch Stripe products
+        const edgeFunctionUrl = `${SUPABASE_CONFIG.url}/functions/v1/fetch-stripe-products`;
+        
         if (typeof DEBUG !== 'undefined') {
-            DEBUG.warn('fetchStripeProducts not fully implemented');
+            DEBUG.network('GET', edgeFunctionUrl, {});
+        }
+
+        const response = await fetch(edgeFunctionUrl, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                // Include Supabase anon key if configured (optional for this endpoint)
+                ...(SUPABASE_CONFIG.anonKey && SUPABASE_CONFIG.anonKey !== 'YOUR_SUPABASE_ANON_KEY_HERE' 
+                    ? { 'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}` }
+                    : {})
+            }
+        });
+
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.network('GET', edgeFunctionUrl, { status: response.status });
+        }
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            throw new Error(`Failed to fetch products: ${response.status} ${errorData.error || response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        // Edge Function returns { products: [...], count: N }
+        const products = data.products || [];
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.api('Stripe', 'fetchProductsSuccess', { 
+                count: products.length,
+                productIds: products.map(p => p.id)
+            });
             DEBUG.timeEnd('fetchStripeProducts');
         }
-        return [];
+        
+        return products;
     } catch (error) {
         console.error("Error fetching Stripe products:", error);
         if (typeof DEBUG !== 'undefined') {
-            DEBUG.error('Error fetching Stripe products', { error: error.message });
+            DEBUG.error('Error fetching Stripe products', { 
+                error: error.message,
+                stack: error.stack 
+            });
             DEBUG.timeEnd('fetchStripeProducts');
         }
         return [];

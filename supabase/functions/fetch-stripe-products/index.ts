@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0?target=deno";
+import { DEBUG } from "../_shared/debug.ts";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
   apiVersion: "2023-10-16",
@@ -7,8 +8,11 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
 });
 
 serve(async (req) => {
+  DEBUG.request(req.method, req.url);
+  
   // Handle CORS
   if (req.method === "OPTIONS") {
+    DEBUG.log('CORS preflight request');
     return new Response(null, {
       status: 200,
       headers: {
@@ -20,6 +24,7 @@ serve(async (req) => {
   }
 
   if (req.method !== "GET") {
+    DEBUG.warn('Invalid method for fetch-stripe-products', { method: req.method });
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
       headers: { "Content-Type": "application/json" },
@@ -27,11 +32,15 @@ serve(async (req) => {
   }
 
   try {
+    DEBUG.api('Stripe', 'fetchProducts', { hasSecretKey: !!Deno.env.get("STRIPE_SECRET_KEY") });
+    
     // Fetch active products from Stripe
     const products = await stripe.products.list({
       active: true,
       limit: 100,
     });
+    
+    DEBUG.api('Stripe', 'productsListed', { count: products.data.length });
 
     // Fetch prices for each product
     const productsWithPrices = await Promise.all(
@@ -80,6 +89,14 @@ serve(async (req) => {
     // Filter out products without prices
     const validProducts = productsWithPrices.filter((p) => p.price !== null);
 
+    DEBUG.api('Stripe', 'fetchProductsSuccess', { 
+      totalProducts: products.data.length,
+      validProducts: validProducts.length,
+      productIds: validProducts.map(p => p.id)
+    });
+    
+    DEBUG.response(200, { count: validProducts.length });
+
     return new Response(
       JSON.stringify({
         products: validProducts,
@@ -94,6 +111,10 @@ serve(async (req) => {
       }
     );
   } catch (error) {
+    DEBUG.error('Error fetching Stripe products', { 
+      error: error.message,
+      stack: error.stack 
+    });
     console.error("Error fetching Stripe products:", error);
     return new Response(
       JSON.stringify({
