@@ -1,45 +1,115 @@
 // ===========================
-// SUPABASE CLIENT INITIALIZATION
+// SUPABASE REMOVED - Using GitHub API for user management instead
 // ===========================
-let supabaseClient = null;
-
-// Initialize Supabase client
-if (typeof supabase !== 'undefined' && SUPABASE_CONFIG.url && SUPABASE_CONFIG.anonKey) {
-    if (!SUPABASE_CONFIG.url.includes("YOUR_SUPABASE_URL_HERE") && 
-        !SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE_ANON_KEY_HERE")) {
-        try {
-            supabaseClient = supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
-            console.log("✅ Supabase client initialized");
-        } catch (error) {
-            console.error("❌ Error initializing Supabase client:", error);
-        }
-    } else {
-        console.warn("⚠️ Supabase not configured. Check config.js");
-    }
-} else {
-    console.warn("⚠️ Supabase library not loaded or config missing");
-}
 
 // ===========================
 // MICROSOFT OAUTH & ONEDRIVE STORAGE (HYBRID APPROACH)
 // ===========================
-// Microsoft OAuth is available as an additional signup/login option.
+// DEBUG: Initialize debug system check
+if (typeof DEBUG !== 'undefined') {
+    DEBUG.log('script.js loaded', { timestamp: new Date().toISOString() });
+}
+// DEBUG: Wrap UI handlers so we can correlate "what user clicked" -> "what happened"
+if (typeof DEBUG !== 'undefined') {
+    setTimeout(() => {
+        const wrap = (fnName) => {
+            try {
+                const original = window[fnName];
+                if (typeof original !== 'function') return;
+                if (original.__debugWrapped) return;
+
+                const wrapped = function(...args) {
+                    const click = (typeof DEBUG.consumeLastUiClick === 'function')
+                        ? DEBUG.consumeLastUiClick()
+                        : null;
+
+                    const handlerTimer = `Handler ${fnName} ${Date.now()}`;
+
+                    DEBUG.group(`▶️ Handler: ${fnName}`);
+                    if (click) {
+                        DEBUG.log('fromClick', click.info);
+                    }
+                    DEBUG.log('args', args);
+                    DEBUG.time(handlerTimer);
+
+                    const finishOk = () => {
+                        DEBUG.timeEnd(handlerTimer);
+                        if (click && click.timerLabel) {
+                            DEBUG.timeEnd(click.timerLabel);
+                        }
+                        DEBUG.groupEnd();
+                    };
+
+                    const finishErr = (err) => {
+                        DEBUG.error(`handlerError: ${fnName}`, { message: err?.message, stack: err?.stack });
+                        DEBUG.timeEnd(handlerTimer);
+                        if (click && click.timerLabel) {
+                            DEBUG.timeEnd(click.timerLabel);
+                        }
+                        DEBUG.groupEnd();
+                        throw err;
+                    };
+
+                    try {
+                        const result = original.apply(this, args);
+                        if (result && typeof result.then === 'function') {
+                            return result.then((v) => {
+                                finishOk();
+                                return v;
+                            }).catch((e) => finishErr(e));
+                        }
+                        finishOk();
+                        return result;
+                    } catch (e) {
+                        return finishErr(e);
+                    }
+                };
+
+                wrapped.__debugWrapped = true;
+                wrapped.__debugOriginal = original;
+                window[fnName] = wrapped;
+                DEBUG.log('Wrapped UI handler', { fnName });
+            } catch (e) {
+                // Don't break app if wrapping fails
+                DEBUG.warn('Failed to wrap handler', { fnName, error: e?.message });
+            }
+        };
+
+        // Inline onclick handlers (index.html) and common UI entrypoints
+        const handlerNames = [
+            'leggTilInntekt',
+            'leggTilUtgift',
+            'leggTilSkyldner',
+            'beregnBudsjett',
+            'eksporterPDF',
+            'eksporterExcel',
+            'nullstillData',
+            'slettElement',
+            'markerSomBetalt',
+            'slettSkyldner',
+            'showProductSelection',
+            'closeProductSelection',
+            'selectProduct',
+            'showSettingsModal',
+            'closeSettingsModal',
+            'signInWithMicrosoft',
+            'signInWithGoogle',
+            'signInWithGitHub',
+            'signInWithEmail',
+            'signOut',
+            'showSignupModal',
+            'hideSignupModal',
+            'handleSignup',
+        ];
+
+        handlerNames.forEach(wrap);
+    }, 0);
+}
+// Microsoft OAuth is used for authentication and OneDrive data storage.
 // When users sign up/login with Microsoft:
 //   1. Microsoft account is used for OneDrive data storage
-//   2. Supabase account is created/linked for subscription management
-//   3. Subscription status is always checked from Supabase (user_profiles table)
-//   4. App data (inntekter, utgifter, etc.) is synced to OneDrive
-
-// Helper function to generate secure random password for Supabase account creation
-function generateSecurePassword() {
-    // Generate a secure random password (user won't need to use it - Microsoft is primary auth)
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-    let password = '';
-    for (let i = 0; i < 32; i++) {
-        password += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return password;
-}
+//   2. User subscription status is checked from GitHub API
+//   3. App data (inntekter, utgifter, etc.) is synced to OneDrive
 
 // Initialize MSAL (Microsoft Authentication Library)
 let msalInstance = null;
@@ -50,8 +120,17 @@ let msalInitialized = false;
 
 // Initialize MSAL (Microsoft Authentication Library)
 async function initializeMSAL() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('initializeMSAL');
+        DEBUG.auth('Microsoft', 'initialize', { msalInitialized, hasInstance: !!msalInstance });
+    }
+    
     // If already initialized, return
     if (msalInitialized && msalInstance) {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.log('MSAL already initialized, skipping');
+            DEBUG.timeEnd('initializeMSAL');
+        }
         return;
     }
     
@@ -154,20 +233,39 @@ async function initializeMSAL() {
             msalInitialized = true;
             console.log("✅ MSAL initialized");
             
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.auth('Microsoft', 'initialized', { clientId: MSAL_CONFIG.clientId });
+            }
+            
             // Check for existing accounts
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
                 microsoftAccount = accounts[0];
                 console.log("✅ Microsoft account found:", microsoftAccount.username);
+                if (typeof DEBUG !== 'undefined') {
+                    DEBUG.auth('Microsoft', 'accountFound', { 
+                        username: microsoftAccount.username,
+                        accountCount: accounts.length 
+                    });
+                }
             }
         } else {
             console.warn("⚠️ Microsoft OAuth not configured. Set MSAL_CONFIG in config.js");
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.warn('Microsoft OAuth not configured');
+            }
         }
     } catch (error) {
         console.error("❌ Failed to initialize MSAL:", error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('MSAL initialization failed', { error: error.message, stack: error.stack });
+        }
         // Don't block the app if MSAL fails - user can still use email login
     } finally {
         msalInitializing = false;
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.timeEnd('initializeMSAL');
+        }
     }
 }
 
@@ -192,10 +290,18 @@ if (document.readyState === 'loading') {
 
 // Sign in with Microsoft
 async function signInWithMicrosoft() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('signInWithMicrosoft');
+        DEBUG.auth('Microsoft', 'signIn', { start: true });
+    }
+    
     // Check if MSAL_CONFIG exists
     if (typeof MSAL_CONFIG === 'undefined' || !MSAL_CONFIG.clientId || 
         MSAL_CONFIG.clientId === "YOUR_AZURE_AD_CLIENT_ID" || 
         MSAL_CONFIG.clientId === "YOUR_MSAL_CLIENT_ID_HERE") {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Microsoft OAuth not configured');
+        }
         alert("Microsoft OAuth ikke konfigurert. Sjekk config.js");
         return;
     }
@@ -275,61 +381,39 @@ async function signInWithMicrosoft() {
         
         console.log("✅ Microsoft sign-in successful:", microsoftAccount.username);
         
-        const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
-        
-        // After Microsoft login, create/link Supabase account
-        // This ensures subscription management is always in Supabase
-        if (!supabaseClient) {
-            alert("Supabase ikke konfigurert. Kan ikke opprette konto.");
-            return;
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.auth('Microsoft', 'signInSuccess', { 
+                username: microsoftAccount.username,
+                accountId: microsoftAccount.homeAccountId 
+            });
         }
         
-        try {
-            // Try to sign up with Microsoft email (will create account if new, or fail if exists)
-            // We use a secure random password since user will authenticate via Microsoft
-            const { data: signUpData, error: signUpError } = await supabaseClient.auth.signUp({
-                email: microsoftEmail,
-                password: generateSecurePassword(), // Generate secure random password (user won't need it)
-                options: {
-                    emailRedirectTo: window.location.origin + window.location.pathname,
-                    data: {
-                        provider: 'microsoft',
-                        microsoft_email: microsoftEmail
-                    }
-                }
-            });
-            
-            let supabaseUser = signUpData?.user;
-            
-            // If sign up failed, user might already exist
-            if (signUpError) {
-                if (signUpError.message.includes("already registered") || 
-                    signUpError.message.includes("already exists")) {
-                    // User exists - we'll check subscription by email (no Supabase session)
-                    console.log("✅ Microsoft user already has Supabase account");
-                } else {
-                    console.error("Error creating Supabase account:", signUpError);
-                    // Continue anyway - we can check subscription by email
-                }
-            } else if (supabaseUser) {
-                // New account created - ensure profile exists
-                await createUserProfile(supabaseUser.id, microsoftEmail);
-                console.log("✅ Supabase account created for Microsoft user");
-            }
-            
-            // Check auth and subscription (will check by email since we may not have Supabase session)
-            await checkAuthAndSubscription();
-            
-        } catch (error) {
-            console.error("Error linking Microsoft to Supabase:", error);
-            // Continue anyway - we can still check subscription by email
-            await checkAuthAndSubscription();
+        const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
+        
+        // Check subscription status from GitHub API
+        // TODO: Implement GitHub API integration
+        // For now, show subscription prompt
+        await checkAuthAndSubscription();
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.timeEnd('signInWithMicrosoft');
         }
         
     } catch (error) {
         console.error("Microsoft sign-in error:", error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Microsoft sign-in failed', { 
+                errorCode: error.errorCode,
+                errorMessage: error.message,
+                error: error 
+            });
+            DEBUG.timeEnd('signInWithMicrosoft');
+        }
         if (error.errorCode === "user_cancelled") {
             console.log("User cancelled Microsoft login");
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.info('User cancelled Microsoft login');
+            }
         } else {
             alert("Feil ved innlogging med Microsoft: " + (error.message || error.errorCode));
         }
@@ -632,9 +716,17 @@ async function getOrCreateDataFolder() {
 
 // Save data file to OneDrive
 async function saveDataToOneDrive(filename, data) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time(`saveDataToOneDrive-${filename}`);
+        DEBUG.storage('OneDrive', 'save', { filename, dataSize: JSON.stringify(data).length });
+    }
+    
     if (!microsoftAccount) {
         // Fallback to localStorage if not using Microsoft
         console.warn("Not using Microsoft, falling back to localStorage");
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Not using Microsoft, falling back to localStorage', { filename });
+        }
         return false;
     }
 
@@ -646,6 +738,10 @@ async function saveDataToOneDrive(filename, data) {
 
         const folder = await getOrCreateDataFolder();
         const fileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${folder.id}:/${filename}:/content`;
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.network('PUT', fileUrl, { filename, folderId: folder.id });
+        }
         
         // Convert data to JSON string for file content
         const fileContent = JSON.stringify(data, null, 2);
@@ -664,9 +760,17 @@ async function saveDataToOneDrive(filename, data) {
         }
 
         console.log(`✅ Saved ${filename} to OneDrive`);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.storage('OneDrive', 'saveSuccess', { filename, size: fileContent.length });
+            DEBUG.timeEnd(`saveDataToOneDrive-${filename}`);
+        }
         return true;
     } catch (error) {
         console.error("Error saving to OneDrive:", error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('OneDrive save failed', { filename, error: error.message });
+            DEBUG.timeEnd(`saveDataToOneDrive-${filename}`);
+        }
         // Fallback to localStorage
         return false;
     }
@@ -674,8 +778,16 @@ async function saveDataToOneDrive(filename, data) {
 
 // Load data file from OneDrive
 async function loadDataFromOneDrive(filename) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time(`loadDataFromOneDrive-${filename}`);
+        DEBUG.storage('OneDrive', 'load', { filename });
+    }
+    
     if (!microsoftAccount) {
         // Fallback to localStorage if not using Microsoft
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Not using Microsoft, cannot load from OneDrive', { filename });
+        }
         return null;
     }
 
@@ -688,6 +800,10 @@ async function loadDataFromOneDrive(filename) {
         const folder = await getOrCreateDataFolder();
         const fileUrl = `${OFFICE365_CONFIG.graphEndpoint}/me/drive/items/${folder.id}:/${filename}:/content`;
 
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.network('GET', fileUrl, { filename, folderId: folder.id });
+        }
+
         const response = await fetch(fileUrl, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`
@@ -697,6 +813,10 @@ async function loadDataFromOneDrive(filename) {
         if (!response.ok) {
             if (response.status === 404) {
                 // File doesn't exist yet
+                if (typeof DEBUG !== 'undefined') {
+                    DEBUG.info('File not found in OneDrive', { filename });
+                    DEBUG.timeEnd(`loadDataFromOneDrive-${filename}`);
+                }
                 return null;
             }
             throw new Error(`Failed to load file: ${response.statusText}`);
@@ -706,9 +826,17 @@ async function loadDataFromOneDrive(filename) {
         const text = await response.text();
         const data = JSON.parse(text);
         console.log(`✅ Loaded ${filename} from OneDrive`);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.storage('OneDrive', 'loadSuccess', { filename, size: text.length });
+            DEBUG.timeEnd(`loadDataFromOneDrive-${filename}`);
+        }
         return data;
     } catch (error) {
         console.error("Error loading from OneDrive:", error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('OneDrive load failed', { filename, error: error.message });
+            DEBUG.timeEnd(`loadDataFromOneDrive-${filename}`);
+        }
         return null;
     }
 }
@@ -801,77 +929,24 @@ async function loadAllDataFromOneDrive() {
 // ===========================
 
 // Check authentication and subscription status
-// Priority: Supabase session > Microsoft auth
-// Subscription status is ALWAYS checked from Supabase (user_profiles table)
-// OneDrive is used for data storage ONLY when Microsoft auth is active
+// Subscription status is checked from GitHub API
+// OneDrive is used for data storage when Microsoft auth is active
 async function checkAuthAndSubscription() {
-    if (!supabaseClient) {
-        showAuthError("Supabase ikke konfigurert. Sjekk config.js");
-        showLoginPrompt();
-        return;
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('checkAuthAndSubscription');
+        DEBUG.auth('System', 'checkAuthAndSubscription', { hasAccount: !!microsoftAccount });
     }
-
-    // PRIORITY 1: Check Supabase session (primary authentication)
-    try {
-        const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-        
-        if (!sessionError && session) {
-            console.log("✅ User authenticated via Supabase:", session.user.email);
-            
-            // Check subscription status from user_profiles table
-            const { data: profile, error: profileError } = await supabaseClient
-                .from('user_profiles')
-                .select('plan_status, subscription_end')
-                .eq('id', session.user.id)
-                .single();
-
-            if (profileError && profileError.code !== 'PGRST116') {
-                console.error("Error fetching profile:", profileError);
-            }
-
-            // Check if user has active subscription
-            let hasActiveSubscription = false;
-            if (profile) {
-                const isActive = profile.plan_status === 'active';
-                const notExpired = !profile.subscription_end || new Date(profile.subscription_end) > new Date();
-                hasActiveSubscription = isActive && notExpired;
-            }
-
-            if (hasActiveSubscription) {
-                // User has active subscription - grant access
-                userHasAccess = true;
-                hidePaywall();
-                showUserInfo(session.user.email);
-                
-                // If Microsoft is also logged in, sync data to OneDrive
-                if (microsoftAccount) {
-                    try {
-                        await loadAllDataFromOneDrive();
-                    } catch (error) {
-                        console.warn("Failed to load from OneDrive, using localStorage:", error);
-                    }
-                }
-                // Otherwise, data is in localStorage (already loaded on page load)
-                return;
-            } else {
-                // User doesn't have active subscription
-                userHasAccess = false;
-                showSubscriptionPrompt(session.user.email);
-                return;
-            }
-        }
-    } catch (error) {
-        console.error("Error checking Supabase session:", error);
-    }
-
-    // PRIORITY 2: Check Microsoft authentication (if Supabase session not available)
-    // This handles the case where user signed in with Microsoft but Supabase session isn't established yet
+    
+    // Check Microsoft authentication
     if (microsoftAccount) {
         try {
             // Verify Microsoft token is still valid
             const token = await getMicrosoftAccessToken();
             if (!token) {
                 console.error("Microsoft token verification failed");
+                if (typeof DEBUG !== 'undefined') {
+                    DEBUG.error('Microsoft token verification failed');
+                }
                 microsoftAccount = null;
                 microsoftAccessToken = null;
                 showLoginPrompt();
@@ -881,44 +956,42 @@ async function checkAuthAndSubscription() {
             console.log("✅ Microsoft user authenticated:", microsoftAccount.username);
             const microsoftEmail = microsoftAccount.username || microsoftAccount.name;
             
-            // Check subscription status from Supabase (by email, since we don't have Supabase session)
-            const { data: profile } = await supabaseClient
-                .from('user_profiles')
-                .select('plan_status, subscription_end')
-                .eq('email', microsoftEmail)
-                .single();
-
-            let hasActiveSubscription = false;
-            if (profile) {
-                const isActive = profile.plan_status === 'active';
-                const notExpired = !profile.subscription_end || new Date(profile.subscription_end) > new Date();
-                hasActiveSubscription = isActive && notExpired;
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.auth('Microsoft', 'authenticated', { email: microsoftEmail });
             }
-
-            if (hasActiveSubscription) {
-                // User has active subscription - grant access
-                userHasAccess = true;
-                hidePaywall();
-                showUserInfo(microsoftEmail);
-                
-                // Load data from OneDrive (Microsoft auth = OneDrive storage)
-                await loadAllDataFromOneDrive();
-                return;
-            } else {
-                // User doesn't have active subscription
-                userHasAccess = false;
-                showSubscriptionPrompt(microsoftEmail);
-                return;
+            
+            // TODO: Check subscription status from GitHub API
+            // For now, show subscription prompt
+            // await checkUserSubscription(microsoftEmail);
+            
+            userHasAccess = false;
+            showSubscriptionPrompt(microsoftEmail);
+            
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.timeEnd('checkAuthAndSubscription');
             }
+            return;
         } catch (error) {
-            console.error("Microsoft token verification failed:", error);
+            console.error("Error checking subscription:", error);
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.error('Error checking subscription', { error: error.message });
+            }
             microsoftAccount = null;
             microsoftAccessToken = null;
+            showLoginPrompt();
         }
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.timeEnd('checkAuthAndSubscription');
+        }
+        return;
     }
 
     // No active authentication - show login prompt
     console.log("No active session");
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.info('No active session');
+        DEBUG.timeEnd('checkAuthAndSubscription');
+    }
     showLoginPrompt();
 }
 
@@ -1058,76 +1131,22 @@ function startPeriodicAccessCheck() {
 // AUTHENTICATION FUNCTIONS
 // ===========================
 
-// Sign in with Google
+// Sign in with Google (TODO: Implement with GitHub API)
 async function signInWithGoogle() {
-    if (!supabaseClient) {
-        alert("Supabase ikke konfigurert");
-        return;
-    }
-
-    try {
-        const { data, error } = await supabaseClient.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: window.location.origin + window.location.pathname
-            }
-        });
-
-        if (error) throw error;
-        // User will be redirected to Google, then back to this page
-    } catch (error) {
-        console.error("Google sign-in error:", error);
-        alert("Feil ved innlogging med Google: " + error.message);
-    }
+    alert("Google login er ikke implementert ennå. Bruk Microsoft login for nå.");
+    // TODO: Implement Google OAuth with GitHub API integration
 }
 
-// Sign in with GitHub
+// Sign in with GitHub (TODO: Implement with GitHub API)
 async function signInWithGitHub() {
-    if (!supabaseClient) {
-        alert("Supabase ikke konfigurert");
-        return;
-    }
-
-    try {
-        const { data, error } = await supabaseClient.auth.signInWithOAuth({
-            provider: 'github',
-            options: {
-                redirectTo: window.location.origin + window.location.pathname
-            }
-        });
-
-        if (error) throw error;
-        // User will be redirected to GitHub, then back to this page
-    } catch (error) {
-        console.error("GitHub sign-in error:", error);
-        alert("Feil ved innlogging med GitHub: " + error.message);
-    }
+    alert("GitHub login er ikke implementert ennå. Bruk Microsoft login for nå.");
+    // TODO: Implement GitHub OAuth with GitHub API integration
 }
 
-// Sign in with Email (magic link)
+// Sign in with Email (TODO: Implement with GitHub API)
 async function signInWithEmail() {
-    if (!supabaseClient) {
-        alert("Supabase ikke konfigurert");
-        return;
-    }
-
-    const email = prompt("Skriv inn din e-postadresse:");
-    if (!email) return;
-
-    try {
-        const { data, error } = await supabaseClient.auth.signInWithOtp({
-            email: email,
-            options: {
-                emailRedirectTo: window.location.origin + window.location.pathname
-            }
-        });
-
-        if (error) throw error;
-        alert("Sjekk din e-post for innloggingslenken!");
-    } catch (error) {
-        console.error("Email sign-in error:", error);
-        alert("Feil ved innlogging: " + error.message);
-    }
+    alert("E-post login er ikke implementert ennå. Bruk Microsoft login for nå.");
+    // TODO: Implement email/password auth with GitHub API integration
 }
 
 // Show signup modal
@@ -1149,131 +1168,15 @@ function hideSignupModal() {
     }
 }
 
-// Handle signup form submission
+// Handle signup form submission (TODO: Implement with GitHub API)
 async function handleSignup(event) {
     event.preventDefault();
-    
-    if (!supabaseClient) {
-        showSignupError("Supabase ikke konfigurert");
-        return;
-    }
-
-    const email = document.getElementById("signup-email").value.trim();
-    const password = document.getElementById("signup-password").value;
-    const passwordConfirm = document.getElementById("signup-password-confirm").value;
-
-    // Validation
-    if (!email || !password || !passwordConfirm) {
-        showSignupError("Vennligst fyll ut alle felt");
-        return;
-    }
-
-    if (password.length < 6) {
-        showSignupError("Passordet må være minst 6 tegn langt");
-        return;
-    }
-
-    if (password !== passwordConfirm) {
-        showSignupError("Passordene stemmer ikke overens");
-        return;
-    }
-
-    // Clear previous errors
-    showSignupError("");
-
-    try {
-        // Sign up user with Supabase
-        const { data: authData, error: authError } = await supabaseClient.auth.signUp({
-            email: email,
-            password: password,
-            options: {
-                emailRedirectTo: window.location.origin + window.location.pathname
-            }
-        });
-
-        if (authError) throw authError;
-
-        // If email confirmation is required, user will need to confirm email
-        if (authData.user && !authData.session) {
-            alert("Konto opprettet! Sjekk din e-post for å bekrefte kontoen din.");
-            hideSignupModal();
-            showLoginPrompt();
-            return;
-        }
-
-        // If session is created immediately (email confirmation disabled)
-        if (authData.session && authData.user) {
-            console.log("✅ User signed up:", authData.user.email);
-            
-            // Create user profile in user_profiles table
-            await createUserProfile(authData.user.id, email);
-            
-            // Check auth and subscription status
-            await checkAuthAndSubscription();
-            
-            // Hide signup modal
-            hideSignupModal();
-        }
-
-    } catch (error) {
-        console.error("Signup error:", error);
-        showSignupError(error.message || "Feil ved opprettelse av konto. Prøv igjen.");
-    }
+    showSignupError("E-post registrering er ikke implementert ennå. Bruk Microsoft login for nå.");
+    // TODO: Implement email/password signup with GitHub API integration
 }
 
-// Create user profile in user_profiles table
-async function createUserProfile(userId, email) {
-    if (!supabaseClient) return;
-
-    try {
-        const { data, error } = await supabaseClient
-            .from('user_profiles')
-            .insert({
-                id: userId,
-                email: email,
-                plan_status: 'inactive',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-            })
-            .select()
-            .single();
-
-        if (error) {
-            // If profile already exists, that's okay
-            if (error.code !== '23505') { // 23505 = unique violation
-                console.error("Error creating user profile:", error);
-            }
-        } else {
-            console.log("✅ User profile created:", data);
-        }
-    } catch (error) {
-        console.error("Error in createUserProfile:", error);
-    }
-}
-
-// Ensure user profile exists (useful for email confirmation flow)
-async function ensureUserProfile(userId, email) {
-    if (!supabaseClient || !userId) return;
-
-    try {
-        // Check if profile exists
-        const { data: existingProfile, error: checkError } = await supabaseClient
-            .from('user_profiles')
-            .select('id')
-            .eq('id', userId)
-            .single();
-
-        // If profile doesn't exist, create it
-        if (checkError && checkError.code === 'PGRST116') {
-            console.log("Profile doesn't exist, creating...");
-            await createUserProfile(userId, email);
-        } else if (existingProfile) {
-            console.log("✅ User profile already exists");
-        }
-    } catch (error) {
-        console.error("Error ensuring user profile:", error);
-    }
-}
+// Create user profile (REMOVED - Supabase function, will be replaced with GitHub API)
+// TODO: Implement createUserInGitHub() function
 
 // Show signup error message
 function showSignupError(message) {
@@ -1295,17 +1198,6 @@ async function signOut() {
     if (microsoftAccount) {
         await signOutMicrosoft();
     }
-
-    // Sign out from Supabase if configured
-    if (supabaseClient) {
-        try {
-            const { error } = await supabaseClient.auth.signOut();
-            if (error) throw error;
-            console.log("✅ Signed out successfully");
-        } catch (error) {
-            console.error("Sign out error:", error);
-        }
-    }
     
     // Clear local data
     localStorage.removeItem("abonnent");
@@ -1319,42 +1211,29 @@ async function signOut() {
 // PRODUCT SELECTION
 // ===========================
 
-// Fetch products from Stripe API via Azure Function
+// Fetch products from Stripe API
+// TODO: Implement direct Stripe API call or use serverless function
 async function fetchStripeProducts() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('fetchStripeProducts');
+        DEBUG.api('Stripe', 'fetchProducts', {});
+    }
+    
     try {
-        // Fetch products from Stripe via Supabase Edge Function
-        if (!SUPABASE_CONFIG.url || SUPABASE_CONFIG.url.includes("YOUR_SUPABASE_URL_HERE")) {
-            throw new Error("Supabase URL not configured. Please set SUPABASE_CONFIG.url in config.js");
+        // TODO: Replace with direct Stripe API call or serverless function
+        // For now, return empty array - products should be configured manually
+        console.warn("fetchStripeProducts() needs to be implemented with Stripe API");
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('fetchStripeProducts not fully implemented');
+            DEBUG.timeEnd('fetchStripeProducts');
         }
-        if (!SUPABASE_CONFIG.anonKey || SUPABASE_CONFIG.anonKey.includes("YOUR_SUPABASE_ANON_KEY_HERE")) {
-            throw new Error("Supabase Anon Key not configured. Please set SUPABASE_CONFIG.anonKey in config.js");
-        }
-
-        const response = await fetch(
-            `${SUPABASE_CONFIG.url}/functions/v1/fetch-stripe-products`,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${SUPABASE_CONFIG.anonKey}`,
-                    'Content-Type': 'application/json'
-                }
-            }
-        );
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        if (data.error) {
-            throw new Error(data.error);
-        }
-
-        return data.products || [];
+        return [];
     } catch (error) {
         console.error("Error fetching Stripe products:", error);
-        // Fallback: return empty array or show error
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Error fetching Stripe products', { error: error.message });
+            DEBUG.timeEnd('fetchStripeProducts');
+        }
         return [];
     }
 }
@@ -1475,71 +1354,76 @@ function closeProductSelection() {
 
 // Select product and redirect to Stripe Payment Link
 async function selectProduct(paymentLink) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('selectProduct');
+        DEBUG.payment('Stripe', 'selectProduct', { paymentLink: paymentLink ? 'configured' : 'missing' });
+    }
+    
     if (!paymentLink || paymentLink.includes('...') || paymentLink.includes('XXXXXXXX')) {
         alert("Betalinglenke ikke konfigurert. Vennligst kontakt support.");
         console.error("Payment link not configured:", paymentLink);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Payment link not configured', { paymentLink });
+            DEBUG.timeEnd('selectProduct');
+        }
         return;
     }
     
-    // Get current user session to pass user info to Stripe
-    let userId = null;
+    // Get user email from Microsoft account to pass to Stripe
     let userEmail = null;
     
-    if (supabaseClient) {
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session?.user) {
-            userId = session.user.id;
-            userEmail = session.user.email;
-        }
+    if (microsoftAccount) {
+        userEmail = microsoftAccount.username || microsoftAccount.name;
+    }
+    
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.payment('Stripe', 'prepareCheckout', { userEmail, hasAccount: !!microsoftAccount });
     }
     
     // Add user metadata to payment link (if user is logged in)
     // This helps Stripe identify the customer
     let finalPaymentLink = paymentLink;
     
-    if (userId && userEmail) {
+    if (userEmail) {
         // Add user info as URL parameters (Stripe Payment Links support this)
         const separator = paymentLink.includes('?') ? '&' : '?';
-        finalPaymentLink = `${paymentLink}${separator}client_reference_id=${userId}&prefilled_email=${encodeURIComponent(userEmail)}`;
+        finalPaymentLink = `${paymentLink}${separator}client_reference_id=${encodeURIComponent(userEmail)}&prefilled_email=${encodeURIComponent(userEmail)}`;
     }
     
     console.log("Redirecting to Stripe Payment Link:", finalPaymentLink);
     
     // Redirect to Stripe Payment Link
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.payment('Stripe', 'redirectToCheckout', { 
+            paymentLink: finalPaymentLink.substring(0, 50) + '...',
+            userEmail 
+        });
+        DEBUG.timeEnd('selectProduct');
+    }
     window.location.href = finalPaymentLink;
 }
 
 // Poll for subscription status after payment
+// TODO: Implement with GitHub API
 async function pollForSubscription(maxAttempts = 12) {
-    if (!supabaseClient) return;
+    if (!microsoftAccount) return;
+    
+    const userEmail = microsoftAccount.username || microsoftAccount.name;
     
     for (let i = 0; i < maxAttempts; i++) {
         await new Promise(resolve => setTimeout(resolve, 30000)); // Wait 30 seconds between attempts
         
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (!session) {
-            console.log("No session, stopping poll");
-            break;
-        }
-        
-        // Check subscription status
-        await checkAuthAndSubscription();
-        
-        // Check if subscription is now active
-        const { data: profile } = await supabaseClient
-            .from('user_profiles')
-            .select('plan_status, subscription_end')
-            .eq('id', session.user.id)
-            .single();
-        
-        if (profile && profile.plan_status === 'active') {
-            console.log("✅ Subscription active!");
-            showAuthError("Tilgang aktivert! Velkommen!");
-            setTimeout(() => {
-                showAuthError("");
-            }, 3000);
-            return;
-        }
+        // TODO: Check subscription status from GitHub API
+        // const subscriptionCheck = await checkUserSubscription(userEmail);
+        // if (subscriptionCheck.hasAccess) {
+        //     console.log("✅ Subscription active!");
+        //     showAuthError("Tilgang aktivert! Velkommen!");
+        //     setTimeout(() => {
+        //         showAuthError("");
+        //     }, 3000);
+        //     await checkAuthAndSubscription();
+        //     return;
+        // }
         
         console.log(`Polling attempt ${i + 1}/${maxAttempts}...`);
     }
@@ -1553,30 +1437,25 @@ async function pollForSubscription(maxAttempts = 12) {
 // ===========================
 
 async function showSettingsModal() {
-    if (!supabaseClient) return;
+    if (!microsoftAccount) return;
     
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (!session) return;
+    const userEmail = microsoftAccount.username || microsoftAccount.name;
     
-    // Load subscription info
-    const { data: profile } = await supabaseClient
-        .from('user_profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+    // TODO: Load subscription info from GitHub API
+    // const user = await getUserFromGitHub(userEmail);
+    // if (user && user.subscription) {
+    //     const endDate = user.subscription.endDate 
+    //         ? new Date(user.subscription.endDate).toLocaleDateString('no-NO')
+    //         : 'N/A';
+    //     document.getElementById('subscription-info').innerHTML = `
+    //         <strong>Status:</strong> ${user.subscription.status}<br>
+    //         <strong>Slutter:</strong> ${endDate}
+    //     `;
+    // } else {
+    //     document.getElementById('subscription-info').innerHTML = 'Ingen abonnement funnet.';
+    // }
     
-    if (profile) {
-        const endDate = profile.subscription_end 
-            ? new Date(profile.subscription_end).toLocaleDateString('no-NO')
-            : 'N/A';
-        document.getElementById('subscription-info').innerHTML = `
-            <strong>Status:</strong> ${profile.plan_status}<br>
-            <strong>Slutter:</strong> ${endDate}
-        `;
-    } else {
-        document.getElementById('subscription-info').innerHTML = 'Ingen abonnement funnet.';
-    }
-    
+    document.getElementById('subscription-info').innerHTML = 'Innstillinger kommer snart.';
     document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -1590,56 +1469,22 @@ function closeSettingsModal() {
 // ===========================
 
 document.addEventListener("DOMContentLoaded", async () => {
-    if (!supabaseClient) {
-        showAuthError("Supabase ikke konfigurert. Sjekk config.js");
-        return;
-    }
-
     // Check for return from Stripe Payment Link
     const urlParams = new URLSearchParams(window.location.search);
     const paymentSuccess = urlParams.get('payment_success');
     
     if (paymentSuccess === 'true') {
-        // Payment completed - trigger immediate sync
-        console.log("Payment successful, syncing subscription...");
+        // Payment completed - trigger subscription check
+        console.log("Payment successful, checking subscription...");
         
         // Show message to user
         showAuthError("Betaling mottatt! Vent mens vi oppdaterer din tilgang...");
         
-        // Get current user session
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        
-        if (session?.user) {
-            // Trigger immediate sync via Edge Function
-            try {
-                const { data: syncData, error: syncError } = await supabaseClient.functions.invoke(
-                    'sync-user-subscription',
-                    {
-                        body: { email: session.user.email }
-                    }
-                );
-                
-                if (syncError) {
-                    console.error("Sync error:", syncError);
-                    // Fall back to polling
-                    await pollForSubscription(12);
-                } else if (syncData?.synced) {
-                    console.log("✅ Subscription synced successfully!");
-                    // Wait a moment for database to update
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    // Check subscription status
-                    await checkAuthAndSubscription();
-                } else {
-                    console.log("Sync returned but not synced, polling...");
-                    await pollForSubscription(12);
-                }
-            } catch (error) {
-                console.error("Error calling sync function:", error);
-                // Fall back to polling
-                await pollForSubscription(12);
-            }
+        // TODO: Check subscription from GitHub API
+        // For now, poll for subscription status
+        if (microsoftAccount) {
+            await pollForSubscription(12);
         } else {
-            // User not logged in - show login prompt
             showLoginPrompt();
             showAuthError("Vennligst logg inn for å aktivere din tilgang.");
         }
@@ -1661,69 +1506,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
     }
 
-    // Check for OAuth/magic link callback (handle redirect after authentication)
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const hasAccessToken = hashParams.get('access_token');
-    const isMagicLink = hashParams.get('type') === 'magiclink';
+    // Normal page load - check auth immediately
+    await checkAuthAndSubscription();
     
-    if (hasAccessToken || isMagicLink) {
-        // Authentication redirect - Supabase needs to process the hash
-        console.log("Processing authentication callback...");
-        
-        try {
-            // Wait for Supabase to process the hash and set the session
-            // The getSession() call will automatically extract tokens from hash
-            const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-            
-            if (sessionError) {
-                console.error("Session error after redirect:", sessionError);
-                showAuthError("Feil ved autentisering. Prøv igjen.");
-                // Clear the hash to prevent retry loops
-                window.location.hash = '';
-                return;
-            }
-            
-            if (session) {
-                console.log("✅ Session established:", session.user.email);
-                // Clear the hash from URL for cleaner URL
-                window.location.hash = '';
-                // Check auth and subscription status
-                await checkAuthAndSubscription();
-            } else {
-                console.warn("No session after redirect");
-                // Clear hash and show login
-                window.location.hash = '';
-                showLoginPrompt();
-            }
-        } catch (error) {
-            console.error("Error processing auth callback:", error);
-            showAuthError("Feil ved autentisering. Prøv igjen.");
-            window.location.hash = '';
-        }
-    } else {
-        // Normal page load - check auth immediately
-        await checkAuthAndSubscription();
-        
-        // Data is loaded from localStorage on page load
-    }
+    // Data is loaded from localStorage on page load
 
-    // Listen for auth state changes
-    if (supabaseClient) {
-        supabaseClient.auth.onAuthStateChange(async (event, session) => {
-            console.log("Auth state changed:", event, session?.user?.email);
-            
-            if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-                // If user just signed in, ensure profile exists
-                if (session?.user) {
-                    await ensureUserProfile(session.user.id, session.user.email);
-                }
-                checkAuthAndSubscription();
-            } else if (event === 'SIGNED_OUT') {
-                userHasAccess = false;
-                showLoginPrompt();
-            }
-        });
-    }
+    // Auth state changes are now handled by Microsoft OAuth directly
+    // No Supabase auth state listener needed
     
     // Setup security measures
     setupPaywallProtection();
@@ -1866,10 +1655,18 @@ document.getElementById("end").addEventListener("change", function() {
 // Legg til inntekt
 // ========================================================================
 async function leggTilInntekt() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('leggTilInntekt');
+        DEBUG.log('Adding income entry');
+    }
+    
     // Security check
     try {
         await requireAccess();
     } catch (error) {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Access denied for leggTilInntekt', { error: error.message });
+        }
         alert(error.message);
         return;
     }
@@ -1877,8 +1674,24 @@ async function leggTilInntekt() {
     let inntektDato = document.getElementById("inntektDato").value;
     let inntektBeskrivelse = document.getElementById("inntektBeskrivelse").value.trim();
 
-    if (isNaN(inntekt) || inntekt <= 0) { alert("Vennligst oppgi en gyldig inntekt."); return; }
-    if (!inntektDato) { alert("Vennligst velg en dato for inntekten."); return; }
+    if (isNaN(inntekt) || inntekt <= 0) { 
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Invalid income amount', { inntekt });
+        }
+        alert("Vennligst oppgi en gyldig inntekt."); 
+        return; 
+    }
+    if (!inntektDato) { 
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Missing income date');
+        }
+        alert("Vennligst velg en dato for inntekten."); 
+        return; 
+    }
+
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.log('Income entry data', { inntekt, inntektDato, inntektBeskrivelse });
+    }
 
     // Try to send to backend first
     try {
@@ -1886,15 +1699,27 @@ async function leggTilInntekt() {
 
         // After backend insert, reload from backend to get canonical data
         await loadInntekterFromBackend();
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.log('Income added via backend');
+            DEBUG.timeEnd('leggTilInntekt');
+        }
     } catch (err) {
         // If backend fails, fallback to localStorage (keeps app usable offline)
         console.warn("Falling back to localStorage for inntekt because backend failed.");
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Backend failed, using localStorage fallback', { error: err.message });
+        }
         inntekter.push(inntekt);
         inntektsDatoer.push(inntektDato);
         inntektsBeskrivelser.push(inntektBeskrivelse);
 
         lagreData();
         oppdaterListe("inntekter-list", inntekter, inntektsBeskrivelser, "inntekter");
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.timeEnd('leggTilInntekt');
+        }
     }
 
     document.getElementById("nyInntekt").value = "";
@@ -1924,10 +1749,18 @@ async function requireAccess() {
 } 
 
 async function leggTilUtgift() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('leggTilUtgift');
+        DEBUG.log('Adding expense entry');
+    }
+    
     // Security check
     try {
         await requireAccess();
     } catch (error) {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Access denied for leggTilUtgift', { error: error.message });
+        }
         alert(error.message);
         return;
     }
@@ -1935,8 +1768,24 @@ async function leggTilUtgift() {
     let utgiftDato = document.getElementById("utgiftDato").value;
     let utgiftBeskrivelse = document.getElementById("utgiftBeskrivelse").value.trim();
 
-    if (isNaN(utgift) || utgift <= 0) { alert("Vennligst oppgi en gyldig utgift."); return; }
-    if (!utgiftDato) { alert("Vennligst velg en dato for utgiften."); return; }
+    if (isNaN(utgift) || utgift <= 0) { 
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Invalid expense amount', { utgift });
+        }
+        alert("Vennligst oppgi en gyldig utgift."); 
+        return; 
+    }
+    if (!utgiftDato) { 
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.warn('Missing expense date');
+        }
+        alert("Vennligst velg en dato for utgiften."); 
+        return; 
+    }
+
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.log('Expense entry data', { utgift, utgiftDato, utgiftBeskrivelse });
+    }
 
     utgifter.push(utgift);
     utgiftsDatoer.push(utgiftDato);
@@ -1948,6 +1797,11 @@ async function leggTilUtgift() {
     document.getElementById("nyUtgift").value = "";
     document.getElementById("utgiftDato").value = "";
     document.getElementById("utgiftBeskrivelse").value = "";
+    
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.log('Expense added successfully');
+        DEBUG.timeEnd('leggTilUtgift');
+    }
 }
 
 // ========================================================================
@@ -2103,10 +1957,18 @@ async function lagreData() {
 // Beregn budsjett, andeler, egenkapital
 // ========================================================================
 async function beregnBudsjett() {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.time('beregnBudsjett');
+        DEBUG.log('Calculating budget');
+    }
+    
     // Security check
     try {
         await requireAccess();
     } catch (error) {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Access denied for beregnBudsjett', { error: error.message });
+        }
         alert(error.message);
         return;
     }
@@ -2119,6 +1981,18 @@ async function beregnBudsjett() {
     const nettoResultat = totalInntekter - totalUtgifter;
     const totalAndelVerdi = andeler * andelVerdi;
     const egenkapital = nettoResultat + totalAndelVerdi;
+    
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.log('Budget calculation results', {
+            totalInntekter,
+            totalUtgifter,
+            nettoResultat,
+            andeler,
+            andelVerdi,
+            totalAndelVerdi,
+            egenkapital
+        });
+    }
 
     document.getElementById("resultat").innerHTML = `
         <strong>Netto resultat:</strong> ${nettoResultat} kr <br>

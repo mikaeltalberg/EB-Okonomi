@@ -8,26 +8,85 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
-    <!-- Supabase JS Client -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Microsoft Authentication Library (MSAL) -->
-    <script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js" 
-            onerror="console.error('Primary MSAL CDN failed, trying fallback...'); loadMSALFallback();"></script>
+    <!-- Try local file first, then CDN fallbacks -->
     <script>
-        // Fallback MSAL loader
-        function loadMSALFallback() {
-            if (window.msal || window.Msal) return; // Already loaded
+        // MSAL loader with proper fallback chain
+        (function() {
+            // Check if MSAL is already loaded
+            if (window.msal || window.Msal || window.msalPublicClientApplication) {
+                console.log('MSAL already loaded');
+                return;
+            }
             
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
-            script.onerror = function() {
-                console.error('Fallback MSAL CDN also failed, trying unpkg...');
-                const script2 = document.createElement('script');
-                script2.src = 'https://unpkg.com/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
-                document.head.appendChild(script2);
+            // Track loading state
+            window.msalLoadError = false;
+            window.msalScriptLoaded = false;
+            
+            // Try local file first (if available)
+            const tryLocal = function() {
+                const localScript = document.createElement('script');
+                localScript.src = './msal-browser.min.js';
+                localScript.onload = function() {
+                    console.log('✅ MSAL loaded from local file');
+                    window.msalScriptLoaded = true;
+                };
+                localScript.onerror = function() {
+                    console.log('Local MSAL file not found, trying CDN...');
+                    tryPrimaryCDN();
+                };
+                document.head.appendChild(localScript);
             };
-            document.head.appendChild(script);
-        }
+            
+            // Try primary CDN
+            const tryPrimaryCDN = function() {
+                const primaryScript = document.createElement('script');
+                primaryScript.src = 'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';
+                primaryScript.onload = function() {
+                    console.log('✅ MSAL loaded from primary CDN');
+                    window.msalScriptLoaded = true;
+                };
+                primaryScript.onerror = function() {
+                    console.warn('Primary MSAL CDN failed, trying fallback...');
+                    tryFallbackCDN();
+                };
+                document.head.appendChild(primaryScript);
+            };
+            
+            // Try fallback CDN (jsDelivr)
+            const tryFallbackCDN = function() {
+                const fallbackScript = document.createElement('script');
+                fallbackScript.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
+                fallbackScript.onload = function() {
+                    console.log('✅ MSAL loaded from fallback CDN (jsDelivr)');
+                    window.msalScriptLoaded = true;
+                };
+                fallbackScript.onerror = function() {
+                    console.warn('Fallback CDN (jsDelivr) failed, trying unpkg...');
+                    tryUnpkgCDN();
+                };
+                document.head.appendChild(fallbackScript);
+            };
+            
+            // Try unpkg CDN (last resort)
+            const tryUnpkgCDN = function() {
+                const unpkgScript = document.createElement('script');
+                unpkgScript.src = 'https://unpkg.com/@azure/msal-browser@2.38.3/dist/msal-browser.min.js';
+                unpkgScript.onload = function() {
+                    console.log('✅ MSAL loaded from unpkg CDN');
+                    window.msalScriptLoaded = true;
+                };
+                unpkgScript.onerror = function() {
+                    console.error('❌ All MSAL CDNs failed. Please check your internet connection or download MSAL locally.');
+                    window.msalLoadError = true;
+                    window.msalScriptLoaded = false;
+                };
+                document.head.appendChild(unpkgScript);
+            };
+            
+            // Start loading chain
+            tryLocal();
+        })();
     </script>
 </head>
 <body>
@@ -202,6 +261,7 @@
         <canvas id="egenkapitalChart"></canvas>
     </div>
 
+    <script src="debug.js"></script>
     <script src="config.js"></script>
     <script src="script.js"></script>
 </body>

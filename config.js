@@ -1,37 +1,57 @@
 // ===========================
-// SUPABASE CONFIGURATION
+// SUPABASE CONFIGURATION (Edge Functions Only)
 // ===========================
 // 
-// IMPORTANT: This file is auto-generated from GitHub Secrets during deployment.
-// For local development, replace the placeholders below with your actual values.
-// For production, GitHub Actions will automatically inject values from GitHub Secrets.
+// Supabase is used ONLY for Edge Functions (secure API proxy for GitHub API).
+// We do NOT use Supabase for authentication or database.
 //
-// Get your credentials from: https://app.supabase.com/project/_/settings/api
+// NOTE: The anon key is safe to expose in client-side code - it's designed to be public.
+// Security is handled by:
+// 1. GitHub token stays server-side (in Edge Function secrets)
+// 2. Edge Function validates requests
+// 3. GitHub repository is private
+//
+// Get your anon key from: https://app.supabase.com/project/bgqsivfeglvhzkftelez/settings/api
+// If you prefer not to use it, we can modify the Edge Function to not require it (less secure).
 
 const SUPABASE_CONFIG = {
-    url: "YOUR_SUPABASE_URL_HERE",  // Replace with your Supabase project URL or use GitHub Secret: SUPABASE_URL
-    anonKey: "YOUR_SUPABASE_ANON_KEY_HERE"  // Replace with your Supabase anon key or use GitHub Secret: SUPABASE_ANON_KEY
+    url: "https://bgqsivfeglvhzkftelez.supabase.co",
+    anonKey: "YOUR_SUPABASE_ANON_KEY_HERE"  // Get from Supabase Dashboard → Settings → API
+    // Note: This is safe to expose - it's public by design
 };
 
-// Note: The anon key is safe to expose in client-side code.
-// Security is handled via Row Level Security (RLS) policies in Supabase.
+// ===========================
+// GITHUB CONFIGURATION
+// ===========================
+// 
+// GitHub API is used for user/subscription management.
+// The API URL points to Supabase Edge Function (secure proxy).
+//
+// To set up:
+// 1. Create private GitHub repository: EB-Okonomi-UserData ✅
+// 2. Create GitHub Personal Access Token with 'repo' and 'workflow' scopes ✅
+// 3. Create serverless function proxy (Supabase Edge Function) ✅
+// 4. Add serverless function URL below ✅
+
+const GITHUB_CONFIG = {
+    apiUrl: "https://bgqsivfeglvhzkftelez.supabase.co/functions/v1/github-user",  // Supabase Edge Function URL
+    owner: "mikaeltalberg",  // Your GitHub username
+    repo: "EB-Okonomi-UserData"  // Private repository name
+};
 
 // ===========================
 // STRIPE CONFIGURATION
 // ===========================
 // 
 // Stripe API Configuration
-// Products are fetched dynamically from Stripe API via Supabase Edge Function
+// Products can be fetched directly from Stripe API or via a serverless function
 //
 // To set up:
 // 1. Get your Stripe Publishable Key from: https://dashboard.stripe.com/apikeys
 // 2. Add it below (safe to expose in client-side code)
-// 3. Set up the Supabase Edge Function (see Documents/STRIPE_API_SETUP.md)
 //
 const STRIPE_CONFIG = {
     publishableKey: "YOUR_STRIPE_PUBLISHABLE_KEY_HERE",  // Replace with your Stripe key or use GitHub Secret: STRIPE_PUBLISHABLE_KEY
-    // Note: Products are fetched via Supabase Edge Function for security
-    // The function uses your Stripe Secret Key server-side
 };
 
 // Payment redirect URL (where users return after payment)
@@ -41,9 +61,9 @@ const STRIPE_REDIRECT_URL = "YOUR_STRIPE_REDIRECT_URL_HERE";  // Replace with yo
 // MICROSOFT OAUTH CONFIGURATION (OPTIONAL)
 // ===========================
 // 
-// Microsoft OAuth is available as an additional login option.
+// Microsoft OAuth is used for authentication and OneDrive data storage.
 // When logged in with Microsoft, app data is synced to OneDrive.
-// Subscription status is still managed in Supabase.
+// Subscription status is managed via GitHub API.
 //
 // To set up Microsoft OAuth:
 // 1. Go to Azure Portal: https://portal.azure.com
@@ -79,4 +99,45 @@ const OFFICE365_CONFIG = {
     graphEndpoint: "https://graph.microsoft.com/v1.0",
     // OneDrive folder name where app data will be stored
     dataFolderName: "EB-Okonomi-Data"
+};
+
+// ===========================
+// DEBUG CONFIGURATION
+// ===========================
+// 
+// Debug settings for development and production.
+// 
+// For DEV branch: Set enabled = true
+// For MASTER branch: Set enabled = false (or use build script to strip debug code)
+//
+// You can also detect branch automatically:
+//   const isDevBranch = window.location.hostname === 'localhost' || 
+//                       window.location.hostname.includes('dev') ||
+//                       document.querySelector('meta[name="branch"]')?.content === 'dev';
+//
+// To enable debug in console: DEBUG.enable()
+// To disable debug in console: DEBUG.disable()
+// To set debug level: DEBUG.setLevel('verbose' | 'info' | 'warn' | 'error' | 'none')
+
+// Auto-detect environment (you can customize this logic)
+const isDevEnvironment = window.location.hostname === 'localhost' || 
+                         window.location.hostname.includes('127.0.0.1') ||
+                         window.location.hostname.includes('dev') ||
+                         window.location.search.includes('debug=true');
+
+// Debug configuration
+window.DEBUG_CONFIG = {
+    enabled: isDevEnvironment,  // true for dev, false for production/master
+    level: 'verbose',  // 'verbose', 'info', 'warn', 'error', 'none'
+    showTimestamp: true,
+    showCaller: true,
+    showMemory: false,
+    colors: true,
+    groups: true,
+    ui: true,       // Log UI clicks (buttons/links/etc.)
+    network: true,  // Log network requests
+    api: true,      // Log API calls (GitHub, Stripe, etc.)
+    auth: true,     // Log authentication events
+    storage: true,  // Log storage operations (OneDrive, localStorage)
+    payment: true   // Log payment operations (Stripe)
 };
