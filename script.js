@@ -420,6 +420,126 @@ async function signInWithMicrosoft() {
     }
 }
 
+// ===========================
+// GITHUB USER MANAGEMENT API
+// ===========================
+
+// Get user data from GitHub
+async function getUserFromGitHub(email) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.api('GitHub', 'getUser', { email });
+    }
+    
+    try {
+        const response = await fetch(`${GITHUB_CONFIG.apiUrl}?email=${encodeURIComponent(email)}`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.status === 404) {
+            if (typeof DEBUG !== 'undefined') {
+                DEBUG.api('GitHub', 'getUser', { email, status: 'notFound' });
+            }
+            return null; // User doesn't exist
+        }
+
+        if (!response.ok) {
+            throw new Error(`Failed to get user: ${response.statusText}`);
+        }
+
+        const userData = await response.json();
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.api('GitHub', 'getUserSuccess', { email, hasSubscription: !!userData.subscription });
+        }
+        
+        return userData;
+    } catch (error) {
+        console.error('Error getting user from GitHub:', error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Error getting user from GitHub', { email, error: error.message });
+        }
+        return null;
+    }
+}
+
+// Create or update user in GitHub
+async function saveUserToGitHub(userData) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.api('GitHub', 'saveUser', { email: userData.email });
+    }
+    
+    try {
+        const response = await fetch(GITHUB_CONFIG.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                email: userData.email,
+                userData: userData
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to save user: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.api('GitHub', 'saveUserSuccess', { email: userData.email });
+        }
+        
+        return result;
+    } catch (error) {
+        console.error('Error saving user to GitHub:', error);
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.error('Error saving user to GitHub', { email: userData.email, error: error.message });
+        }
+        throw error;
+    }
+}
+
+// Check if user has active subscription
+async function checkUserSubscription(email) {
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.api('GitHub', 'checkSubscription', { email });
+    }
+    
+    const user = await getUserFromGitHub(email);
+    
+    if (!user || !user.subscription) {
+        if (typeof DEBUG !== 'undefined') {
+            DEBUG.api('GitHub', 'checkSubscription', { email, result: 'noSubscription' });
+        }
+        return { hasAccess: false, user: null };
+    }
+
+    const subscription = user.subscription;
+    const now = new Date();
+    const endDate = subscription.endDate ? new Date(subscription.endDate) : null;
+    
+    const isActive = subscription.status === 'active' && (!endDate || endDate > now);
+    
+    if (typeof DEBUG !== 'undefined') {
+        DEBUG.api('GitHub', 'checkSubscription', { 
+            email, 
+            status: subscription.status,
+            isActive,
+            endDate: subscription.endDate
+        });
+    }
+    
+    return {
+        hasAccess: isActive,
+        user: user,
+        subscription: subscription
+    };
+}
+
 // Sign out from Microsoft
 async function signOutMicrosoft() {
     if (msalInstance && microsoftAccount) {
@@ -960,12 +1080,30 @@ async function checkAuthAndSubscription() {
                 DEBUG.auth('Microsoft', 'authenticated', { email: microsoftEmail });
             }
             
-            // TODO: Check subscription status from GitHub API
-            // For now, show subscription prompt
-            // await checkUserSubscription(microsoftEmail);
+            // Check subscription status from GitHub API
+            const subscriptionCheck = await checkUserSubscription(microsoftEmail);
             
-            userHasAccess = false;
-            showSubscriptionPrompt(microsoftEmail);
+            if (subscriptionCheck.hasAccess) {
+                // User has active subscription
+                userHasAccess = true;
+                hidePaywall();
+                showUserInfo(microsoftEmail);
+                
+                if (typeof DEBUG !== 'undefined') {
+                    DEBUG.auth('System', 'accessGranted', { email: microsoftEmail });
+                }
+                
+                // Load data from OneDrive
+                await loadAllDataFromOneDrive();
+            } else {
+                // User doesn't have active subscription
+                userHasAccess = false;
+                showSubscriptionPrompt(microsoftEmail);
+                
+                if (typeof DEBUG !== 'undefined') {
+                    DEBUG.auth('System', 'accessDenied', { email: microsoftEmail, reason: 'noActiveSubscription' });
+                }
+            }
             
             if (typeof DEBUG !== 'undefined') {
                 DEBUG.timeEnd('checkAuthAndSubscription');
